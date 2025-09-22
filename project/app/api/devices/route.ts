@@ -62,14 +62,14 @@ export async function POST(request: NextRequest) {
     const device = await prisma.device.upsert({
       where: { mac },
       update: {
-        name: name || undefined,
+        name: name ?? undefined, // Actualiza el nombre si viene en el body
         version: version || undefined,
         status: status || undefined,
         lastSeen: nowArgentina,
       },
       create: {
         mac,
-        name: name || null,
+        name: name ?? null,
         version: version || null,
         status: status || 'OFFLINE',
         lastSeen: nowArgentina,
