@@ -49,11 +49,13 @@ class MQTTManager {
   private subscribeToTopics() {
     if (!this.client) return;
 
+
     const topics = [
       'esp32/status',
       'esp32/heartbeat',
       'esp32/debug',
-      'esp32/measurements'
+      'esp32/measurements',
+      'esp32/sensor'
     ];
 
     topics.forEach(topic => {
@@ -85,10 +87,38 @@ class MQTTManager {
         case 'esp32/measurements':
           await this.handleMeasurementMessage(payload);
           break;
+        case 'esp32/sensor':
+          await this.handleSensorMessage(payload);
+          break;
       }
     } catch (error) {
       console.error(`MQTT: Error processing message from ${topic}:`, error);
     }
+  }
+  private async handleSensorMessage(payload: any) {
+    const { mac, name, temperature, humidity } = payload;
+    const device = await prisma.device.findUnique({ where: { mac } });
+    if (!device) return;
+
+    // Guardar temperatura
+    await prisma.measurement.create({
+      data: {
+        deviceId: device.id,
+        type: 'temperature',
+        value: temperature,
+        unit: 'C',
+      },
+    });
+
+    // Guardar humedad
+    await prisma.measurement.create({
+      data: {
+        deviceId: device.id,
+        type: 'humidity',
+        value: humidity,
+        unit: '%',
+      },
+    });
   }
 
   private async handleStatusMessage(payload: any) {

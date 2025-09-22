@@ -29,8 +29,12 @@ public:
   // Permite establecer un callback para notificar cuando se inicia una actualización OTA.
   void setOTAUpdateCallback(void (*callback)(const String&));
 
+
   // Envía manualmente un heartbeat.
   void sendHeartbeat();
+
+  // Envía datos de temperatura y humedad por MQTT
+  void sendSensorData(float temperature, float humidity);
 
 private:
   void connectWiFi();

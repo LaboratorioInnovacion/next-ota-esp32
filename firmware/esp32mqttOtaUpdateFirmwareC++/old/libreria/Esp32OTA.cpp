@@ -1,3 +1,9 @@
+#define TOPIC_SENSOR "esp32/sensor"
+void Esp32OTA::sendSensorData(float temperature, float humidity) {
+  String sensorMsg = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName + "\",\"temperature\":" + String(temperature, 1) + ",\"humidity\":" + String(humidity, 1) + "}";
+  mqttClient.publish(TOPIC_SENSOR, sensorMsg.c_str(), false);
+  Serial.println("Sensor data enviado: " + sensorMsg);
+}
 #include "Esp32OTA.h"
 
 Esp32OTA::Esp32OTA(const char* ssid, const char* password,
