@@ -116,13 +116,15 @@ class MQTTManager {
 
   async handleStatusMessage(payload) {
     const { mac, name, version, status } = payload;
+    // Calcular la hora en Argentina (UTC-3)
+    const nowArgentina = new Date(Date.now() - 3 * 60 * 60 * 1000);
     await prisma.device.upsert({
       where: { mac },
       update: {
         name: name || null,
         version: version || null,
         status: status || 'ONLINE',
-        lastSeen: new Date(),
+        lastSeen: nowArgentina,
         health: this.calculateHealth(payload),
       },
       create: {
@@ -131,16 +133,19 @@ class MQTTManager {
         version: version || null,
         status: status || 'ONLINE',
         health: this.calculateHealth(payload),
+        lastSeen: nowArgentina,
       },
     });
   }
 
   async handleHeartbeatMessage(payload) {
     const { mac, name } = payload;
+    // Calcular la hora en Argentina (UTC-3)
+    const nowArgentina = new Date(Date.now() - 3 * 60 * 60 * 1000);
     await prisma.device.upsert({
       where: { mac },
       update: {
-        lastSeen: new Date(),
+        lastSeen: nowArgentina,
         status: 'ONLINE',
         name: name || undefined, // Actualiza el nombre si viene en el payload
       },
@@ -148,7 +153,7 @@ class MQTTManager {
         mac,
         name: name || null,
         status: 'ONLINE',
-        lastSeen: new Date(),
+        lastSeen: nowArgentina,
       },
     });
   }
