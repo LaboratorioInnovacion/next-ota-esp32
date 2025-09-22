@@ -116,8 +116,8 @@ class MQTTManager {
 
   async handleStatusMessage(payload) {
     const { mac, name, version, status } = payload;
-    // Calcular la hora en Argentina (UTC-3)
-    const nowArgentina = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  // Calcular la hora en Argentina (UTC-3, sumar 3 horas)
+  const nowArgentina = new Date(Date.now() + 3 * 60 * 60 * 1000);
     await prisma.device.upsert({
       where: { mac },
       update: {
@@ -140,8 +140,8 @@ class MQTTManager {
 
   async handleHeartbeatMessage(payload) {
     const { mac, name } = payload;
-    // Calcular la hora en Argentina (UTC-3)
-    const nowArgentina = new Date(Date.now() - 3 * 60 * 60 * 1000);
+  // Calcular la hora en Argentina (UTC-3, sumar 3 horas)
+  const nowArgentina = new Date(Date.now() + 3 * 60 * 60 * 1000);
     await prisma.device.upsert({
       where: { mac },
       update: {
