@@ -136,12 +136,18 @@ class MQTTManager {
   }
 
   async handleHeartbeatMessage(payload) {
-    const { mac } = payload;
-    await prisma.device.update({
+    const { mac, name } = payload;
+    await prisma.device.upsert({
       where: { mac },
-      data: {
+      update: {
         lastSeen: new Date(),
         status: 'ONLINE',
+      },
+      create: {
+        mac,
+        name: name || null,
+        status: 'ONLINE',
+        lastSeen: new Date(),
       },
     });
   }
