@@ -142,6 +142,7 @@ class MQTTManager {
       update: {
         lastSeen: new Date(),
         status: 'ONLINE',
+        name: name || undefined, // Actualiza el nombre si viene en el payload
       },
       create: {
         mac,
