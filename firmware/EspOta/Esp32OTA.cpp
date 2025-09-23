@@ -1,10 +1,11 @@
+#include "Esp32OTA.h"
 #define TOPIC_SENSOR "esp32/sensor"
+
 void Esp32OTA::sendSensorData(float temperature, float humidity) {
   String sensorMsg = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName + "\",\"temperature\":" + String(temperature, 1) + ",\"humidity\":" + String(humidity, 1) + "}";
   mqttClient.publish(TOPIC_SENSOR, sensorMsg.c_str(), false);
   Serial.println("Sensor data enviado: " + sensorMsg);
 }
-#include "Esp32OTA.h"
 
 Esp32OTA::Esp32OTA(const char* ssid, const char* password,
                    const char* mqttHost, int mqttPort,
@@ -64,7 +65,7 @@ void Esp32OTA::connectMQTT() {
       Serial.println("Conectado a MQTT.");
       // Publicar estado online junto con la versión del firmware
       String onlineMsg = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName +
-                         "\",\"status\":\"online\",\"version\":\"" + _firmwareVersion + "\"}";
+                         "\",\"status\":\"ONLINE\",\"version\":\"" + _firmwareVersion + "\"}";
       mqttClient.publish(TOPIC_STATUS, onlineMsg.c_str(), false);
       // Suscribirse al tópico para recibir comandos OTA
       mqttClient.subscribe(TOPIC_UPDATE);
@@ -144,3 +145,4 @@ void Esp32OTA::loop() {
 void Esp32OTA::setOTAUpdateCallback(void (*callback)(const String&)) {
   otaUpdateCallback = callback;
 }
+
