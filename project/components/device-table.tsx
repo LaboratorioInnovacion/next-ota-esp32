@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { formatDistanceToNow } from 'date-fns';
+import { formatDistanceToNow, addHours } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 interface Device {
@@ -20,7 +20,7 @@ interface DeviceTableProps {
   loading?: boolean;
 }
 
-const getStatusBadge = (status: Device['status']) => {
+const getStatusBadge = (status: Device['status'], lastSeen: string) => {
   const variants = {
     ONLINE: 'bg-green-100 text-green-800',
     OFFLINE: 'bg-gray-100 text-gray-800',
@@ -35,10 +35,21 @@ const getStatusBadge = (status: Device['status']) => {
     ERROR: 'Error',
   };
 
+  // Verificar si realmente está online basado en el tiempo transcurrido
+  const now = new Date();
+  const lastSeenDate = new Date(lastSeen);
+  const timeDiff = Math.abs(now.getTime() - lastSeenDate.getTime()) / 1000; // segundos
+  
+  // Si han pasado más de 2 minutos, mostrar como desconectado independientemente del estado
+  const actualStatus = timeDiff > 120 ? 'OFFLINE' : status;
+
   return (
-    <Badge className={variants[status]}>
-      {labels[status]}
-    </Badge>
+    <div className="flex items-center">
+      <div className={`w-2 h-2 rounded-full mr-2 ${actualStatus === 'ONLINE' ? 'bg-green-400' : 'bg-gray-400'}`}></div>
+      <Badge className={variants[actualStatus]}>
+        {labels[actualStatus]}
+      </Badge>
+    </div>
   );
 };
 
@@ -134,16 +145,22 @@ export function DeviceTable({ devices, loading = false }: DeviceTableProps) {
                   {device.name || 'Sin nombre'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
-                  {getStatusBadge(device.status)}
+                  {getStatusBadge(device.status, device.lastSeen)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                   {device.version || 'N/A'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {formatDistanceToNow(new Date(device.lastSeen), {
-                    addSuffix: true,
-                    locale: es,
-                  })}
+                  {(() => {
+                    // La fecha viene de la BD en horario argentino, pero necesitamos mostrarla correctamente
+                    const lastSeenDate = new Date(device.lastSeen);
+                    // Agregamos 3 horas para compensar la diferencia de zona horaria
+                    const adjustedDate = addHours(lastSeenDate, 3);
+                    return formatDistanceToNow(adjustedDate, {
+                      addSuffix: true,
+                      locale: es,
+                    });
+                  })()}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   {getHealthBadge(device.health)}

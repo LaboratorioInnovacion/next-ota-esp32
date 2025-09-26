@@ -65,22 +65,27 @@ export default function Dashboard() {
     fetchLogs();
 
     const interval = setInterval(() => {
-      fetchDevices();
-    }, 30000); // Refresh devices every 30 seconds
+      if (!connected) {
+        // Solo hacer polling si no estamos conectados por Socket.IO
+        fetchDevices();
+      }
+    }, 60000); // Refresh devices every 60 seconds solo si no hay conexión WebSocket
 
     return () => clearInterval(interval);
-  }, [fetchDevices, fetchLogs]);
+  }, [fetchDevices, fetchLogs, connected]);
 
   useEffect(() => {
     if (socket) {
       socket.on('device-update', (updatedDevice: Device) => {
+        console.log('Device update received:', updatedDevice);
         setDevices(prevDevices => {
-          const index = prevDevices.findIndex(d => d.id === updatedDevice.id);
+          const index = prevDevices.findIndex(d => d.mac === updatedDevice.mac);
           if (index >= 0) {
             const newDevices = [...prevDevices];
-            newDevices[index] = updatedDevice;
+            newDevices[index] = { ...newDevices[index], ...updatedDevice };
             return newDevices;
           }
+          // Si es un nuevo dispositivo, agregarlo
           return [...prevDevices, updatedDevice];
         });
       });

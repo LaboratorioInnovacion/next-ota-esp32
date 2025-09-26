@@ -15,13 +15,17 @@ export async function GET() {
       },
     });
 
-    // Mark devices as offline if they haven't been seen in 60 seconds
+    // Mark devices as offline if they haven't been seen in 2 minutes
+    // Ajustamos el threshold considerando que la base de datos guarda en horario argentino
     const now = new Date();
-    const offlineThreshold = new Date(now.getTime() - 60 * 1000);
+    const argentinaTime = new Date(now.getTime() - 3 * 60 * 60 * 1000); // Convertir a Argentina
+    const offlineThreshold = new Date(argentinaTime.getTime() - 2 * 60 * 1000); // 2 minutos
 
     const updatedDevices = await Promise.all(
       devices.map(async (device) => {
-        if (device.lastSeen < offlineThreshold && device.status !== 'OFFLINE') {
+        const deviceLastSeen = new Date(device.lastSeen);
+        if (deviceLastSeen < offlineThreshold && device.status !== 'OFFLINE') {
+          console.log(`Marcando dispositivo ${device.name} como OFFLINE - Última vez visto: ${deviceLastSeen}, Threshold: ${offlineThreshold}`);
           const updated = await prisma.device.update({
             where: { id: device.id },
             data: { status: 'OFFLINE' },

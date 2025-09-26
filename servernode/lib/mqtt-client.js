@@ -11,7 +11,10 @@ class MQTTManager {
 
   // Función auxiliar para obtener la fecha argentina (UTC-3)
   getArgentinaTime() {
-    return new Date(Date.now() - 3 * 60 * 60 * 1000);
+    // Argentina está UTC-3, así que necesitamos restar 3 horas del UTC
+    const now = new Date();
+    const argentinaTime = new Date(now.getTime() - 3 * 60 * 60 * 1000);
+    return argentinaTime;
   }
 
   async connect() {
