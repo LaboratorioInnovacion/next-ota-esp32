@@ -9,9 +9,15 @@ const initSocketServer = async (httpServer) => {
 
   io = new Server(server, {
     cors: {
-      origin: ["https://next-ota-esp32.vercel.app", "http://localhost:3000", "*"],
-      methods: ["GET", "POST"],
-      credentials: true
+      origin: [
+        "https://next-ota-esp32.vercel.app", 
+        "http://localhost:3000", 
+        "http://localhost:3001",
+        "*"
+      ],
+      methods: ["GET", "POST", "OPTIONS"],
+      credentials: true,
+      allowedHeaders: ["Content-Type", "Authorization"]
     },
     allowEIO3: true,
     transports: ['websocket', 'polling']
