@@ -13,13 +13,16 @@ export function useSocket(): UseSocketReturn {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    // Dynamically construct the Socket.IO server URL
-    const socketUrl = typeof window !== 'undefined' 
-      ? `http://${window.location.hostname}:3001`
-      : 'http://localhost:3001';
+    // Usar variable de entorno si está disponible, sino construir dinámicamente
+    const socketUrl = process.env.NEXT_PUBLIC_SOCKET_URL || 
+      (typeof window !== 'undefined' ? `http://localhost:3001` : 'http://localhost:3001');
+
+    console.log('Connecting to Socket.IO server:', socketUrl);
 
     const socketInstance = io(socketUrl, {
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'], // Fallback a polling si websocket falla
+      upgrade: true,
+      rememberUpgrade: true,
     });
 
     socketInstance.on('connect', () => {

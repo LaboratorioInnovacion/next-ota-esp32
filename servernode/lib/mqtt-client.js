@@ -8,6 +8,11 @@ class MQTTManager {
     this.maxReconnectAttempts = 10;
   }
 
+  // Función auxiliar para obtener la fecha argentina (UTC-3)
+  getArgentinaTime() {
+    return new Date(Date.now() - 3 * 60 * 60 * 1000);
+  }
+
   async connect() {
     try {
       const brokerUrl = process.env.MQTT_BROKER_URL || 'mqtt://localhost:1883';
@@ -116,8 +121,7 @@ class MQTTManager {
 
   async handleStatusMessage(payload) {
     const { mac, name, version, status } = payload;
-  // Calcular la hora en Argentina (UTC-3, sumar 3 horas)
-  const nowArgentina = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    const nowArgentina = this.getArgentinaTime();
     await prisma.device.upsert({
       where: { mac },
       update: {
@@ -126,6 +130,7 @@ class MQTTManager {
         status: status || 'ONLINE',
         lastSeen: nowArgentina,
         health: this.calculateHealth(payload),
+        updatedAt: nowArgentina,
       },
       create: {
         mac,
@@ -140,14 +145,14 @@ class MQTTManager {
 
   async handleHeartbeatMessage(payload) {
     const { mac, name } = payload;
-  // Calcular la hora en Argentina (UTC-3, sumar 3 horas)
-  const nowArgentina = new Date(Date.now() + 3 * 60 * 60 * 1000);
+    const nowArgentina = this.getArgentinaTime();
     await prisma.device.upsert({
       where: { mac },
       update: {
         lastSeen: nowArgentina,
         status: 'ONLINE',
         name: name || undefined, // Actualiza el nombre si viene en el payload
+        updatedAt: nowArgentina,
       },
       create: {
         mac,
