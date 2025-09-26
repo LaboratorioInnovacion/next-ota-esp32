@@ -15,11 +15,9 @@ export async function GET() {
       },
     });
 
-    // Mark devices as offline if they haven't been seen in 2 minutes
-    // Ajustamos el threshold considerando que la base de datos guarda en horario argentino
+    // Mark devices as offline if they haven't been seen in 3 minutes
     const now = new Date();
-    const argentinaTime = new Date(now.getTime() - 3 * 60 * 60 * 1000); // Convertir a Argentina
-    const offlineThreshold = new Date(argentinaTime.getTime() - 2 * 60 * 1000); // 2 minutos
+    const offlineThreshold = new Date(now.getTime() - 3 * 60 * 1000); // 3 minutos
 
     const updatedDevices = await Promise.all(
       devices.map(async (device) => {

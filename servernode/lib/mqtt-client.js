@@ -9,12 +9,9 @@ class MQTTManager {
     this.maxReconnectAttempts = 10;
   }
 
-  // Función auxiliar para obtener la fecha argentina (UTC-3)
-  getArgentinaTime() {
-    // Argentina está UTC-3, así que necesitamos restar 3 horas del UTC
-    const now = new Date();
-    const argentinaTime = new Date(now.getTime() - 3 * 60 * 60 * 1000);
-    return argentinaTime;
+  // Función auxiliar para obtener la fecha actual en UTC
+  getCurrentTime() {
+    return new Date();
   }
 
   async connect() {
@@ -125,16 +122,16 @@ class MQTTManager {
 
   async handleStatusMessage(payload) {
     const { mac, name, version, status } = payload;
-    const nowArgentina = this.getArgentinaTime();
+    const now = this.getCurrentTime();
     const device = await prisma.device.upsert({
       where: { mac },
       update: {
         name: name || null,
         version: version || null,
         status: status || 'ONLINE',
-        lastSeen: nowArgentina,
+        lastSeen: now,
         health: this.calculateHealth(payload),
-        updatedAt: nowArgentina,
+        updatedAt: now,
       },
       create: {
         mac,
@@ -142,7 +139,7 @@ class MQTTManager {
         version: version || null,
         status: status || 'ONLINE',
         health: this.calculateHealth(payload),
-        lastSeen: nowArgentina,
+        lastSeen: now,
       },
     });
     
@@ -152,20 +149,20 @@ class MQTTManager {
 
   async handleHeartbeatMessage(payload) {
     const { mac, name } = payload;
-    const nowArgentina = this.getArgentinaTime();
+    const now = this.getCurrentTime();
     const device = await prisma.device.upsert({
       where: { mac },
       update: {
-        lastSeen: nowArgentina,
+        lastSeen: now,
         status: 'ONLINE',
         name: name || undefined, // Actualiza el nombre si viene en el payload
-        updatedAt: nowArgentina,
+        updatedAt: now,
       },
       create: {
         mac,
         name: name || null,
         status: 'ONLINE',
-        lastSeen: nowArgentina,
+        lastSeen: now,
       },
     });
     

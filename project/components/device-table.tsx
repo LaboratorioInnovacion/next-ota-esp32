@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { formatDistanceToNow, addHours } from 'date-fns';
+import { formatDistanceToNow } from 'date-fns';
 import { es } from 'date-fns/locale';
 
 interface Device {
@@ -35,20 +35,27 @@ const getStatusBadge = (status: Device['status'], lastSeen: string) => {
     ERROR: 'Error',
   };
 
-  // Verificar si realmente está online basado en el tiempo transcurrido
+  // Usar el estado que viene del servidor, que ya tiene la lógica correcta
+  // Solo agregar verificación visual adicional si es necesario
   const now = new Date();
   const lastSeenDate = new Date(lastSeen);
-  const timeDiff = Math.abs(now.getTime() - lastSeenDate.getTime()) / 1000; // segundos
+  const timeDiff = Math.abs(now.getTime() - lastSeenDate.getTime()) / 1000 / 60; // minutos
   
-  // Si han pasado más de 2 minutos, mostrar como desconectado independientemente del estado
-  const actualStatus = timeDiff > 120 ? 'OFFLINE' : status;
+  // Determinar el color del indicador basado en el tiempo real
+  const isRecentlyActive = timeDiff < 3; // menos de 3 minutos
+  const indicatorColor = status === 'ONLINE' && isRecentlyActive ? 'bg-green-400' : 'bg-gray-400';
 
   return (
     <div className="flex items-center">
-      <div className={`w-2 h-2 rounded-full mr-2 ${actualStatus === 'ONLINE' ? 'bg-green-400' : 'bg-gray-400'}`}></div>
-      <Badge className={variants[actualStatus]}>
-        {labels[actualStatus]}
+      <div className={`w-2 h-2 rounded-full mr-2 ${indicatorColor}`}></div>
+      <Badge className={variants[status]}>
+        {labels[status]}
       </Badge>
+      {status === 'ONLINE' && timeDiff > 3 && (
+        <span className="ml-1 text-xs text-yellow-600" title="Último heartbeat hace más de 3 minutos">
+          ⚠️
+        </span>
+      )}
     </div>
   );
 };
@@ -152,11 +159,9 @@ export function DeviceTable({ devices, loading = false }: DeviceTableProps) {
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
                   {(() => {
-                    // La fecha viene de la BD en horario argentino, pero necesitamos mostrarla correctamente
+                    // La fecha viene en UTC, mostrarla directamente
                     const lastSeenDate = new Date(device.lastSeen);
-                    // Agregamos 3 horas para compensar la diferencia de zona horaria
-                    const adjustedDate = addHours(lastSeenDate, 3);
-                    return formatDistanceToNow(adjustedDate, {
+                    return formatDistanceToNow(lastSeenDate, {
                       addSuffix: true,
                       locale: es,
                     });
