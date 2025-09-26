@@ -150,6 +150,9 @@ class MQTTManager {
   async handleHeartbeatMessage(payload) {
     const { mac, name } = payload;
     const now = this.getCurrentTime();
+    
+    console.log(`[${now.toISOString()}] Heartbeat de ${name} (${mac})`);
+    
     const device = await prisma.device.upsert({
       where: { mac },
       update: {

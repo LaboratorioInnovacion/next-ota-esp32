@@ -165,11 +165,16 @@ export default function Dashboard() {
                 <p className="text-sm text-gray-500">Panel de Control</p>
               </div>
             </div>
-            <div className="flex items-center space-x-3">
-              <div className={`w-3 h-3 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`}></div>
-              <span className="text-sm text-gray-600">
-                {connected ? 'Conectado' : 'Desconectado'}
-              </span>
+            <div className="flex items-center space-x-4">
+              <div className="flex items-center space-x-2">
+                <div className={`w-3 h-3 rounded-full ${connected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+                <span className="text-sm text-gray-600">
+                  {connected ? 'Socket Conectado' : 'Socket Desconectado'}
+                </span>
+              </div>
+              <div className="text-xs text-gray-500">
+                Hora actual: {new Date().toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires' })}
+              </div>
             </div>
           </div>
         </div>

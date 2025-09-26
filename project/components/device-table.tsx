@@ -2,8 +2,7 @@
 
 import React from 'react';
 import { Badge } from '@/components/ui/badge';
-import { formatDistanceToNow } from 'date-fns';
-import { es } from 'date-fns/locale';
+import { formatTimeAgo, getMinutesSince } from '@/lib/date-utils';
 
 interface Device {
   id: string;
@@ -35,14 +34,11 @@ const getStatusBadge = (status: Device['status'], lastSeen: string) => {
     ERROR: 'Error',
   };
 
-  // Usar el estado que viene del servidor, que ya tiene la lógica correcta
-  // Solo agregar verificación visual adicional si es necesario
-  const now = new Date();
-  const lastSeenDate = new Date(lastSeen);
-  const timeDiff = Math.abs(now.getTime() - lastSeenDate.getTime()) / 1000 / 60; // minutos
+  // Usar la función utilitaria para calcular los minutos transcurridos
+  const minutesSince = getMinutesSince(lastSeen);
   
   // Determinar el color del indicador basado en el tiempo real
-  const isRecentlyActive = timeDiff < 3; // menos de 3 minutos
+  const isRecentlyActive = minutesSince < 3; // menos de 3 minutos
   const indicatorColor = status === 'ONLINE' && isRecentlyActive ? 'bg-green-400' : 'bg-gray-400';
 
   return (
@@ -51,8 +47,8 @@ const getStatusBadge = (status: Device['status'], lastSeen: string) => {
       <Badge className={variants[status]}>
         {labels[status]}
       </Badge>
-      {status === 'ONLINE' && timeDiff > 3 && (
-        <span className="ml-1 text-xs text-yellow-600" title="Último heartbeat hace más de 3 minutos">
+      {status === 'ONLINE' && minutesSince > 3 && (
+        <span className="ml-1 text-xs text-yellow-600" title={`Último heartbeat hace ${minutesSince} minutos`}>
           ⚠️
         </span>
       )}
@@ -158,14 +154,7 @@ export function DeviceTable({ devices, loading = false }: DeviceTableProps) {
                   {device.version || 'N/A'}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                  {(() => {
-                    // La fecha viene en UTC, mostrarla directamente
-                    const lastSeenDate = new Date(device.lastSeen);
-                    return formatDistanceToNow(lastSeenDate, {
-                      addSuffix: true,
-                      locale: es,
-                    });
-                  })()}
+                  {formatTimeAgo(device.lastSeen)}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
                   {getHealthBadge(device.health)}
