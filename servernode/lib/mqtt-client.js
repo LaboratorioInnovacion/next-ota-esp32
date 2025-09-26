@@ -1,5 +1,6 @@
 const mqtt = require('mqtt');
 const { prisma } = require('./prisma');
+const { emitDeviceUpdate, emitLogUpdate } = require('./socket-server');
 
 class MQTTManager {
   constructor() {
@@ -122,7 +123,7 @@ class MQTTManager {
   async handleStatusMessage(payload) {
     const { mac, name, version, status } = payload;
     const nowArgentina = this.getArgentinaTime();
-    await prisma.device.upsert({
+    const device = await prisma.device.upsert({
       where: { mac },
       update: {
         name: name || null,
@@ -141,12 +142,15 @@ class MQTTManager {
         lastSeen: nowArgentina,
       },
     });
+    
+    // Emitir actualización a clientes conectados
+    emitDeviceUpdate(device);
   }
 
   async handleHeartbeatMessage(payload) {
     const { mac, name } = payload;
     const nowArgentina = this.getArgentinaTime();
-    await prisma.device.upsert({
+    const device = await prisma.device.upsert({
       where: { mac },
       update: {
         lastSeen: nowArgentina,
@@ -161,6 +165,9 @@ class MQTTManager {
         lastSeen: nowArgentina,
       },
     });
+    
+    // Emitir actualización a clientes conectados
+    emitDeviceUpdate(device);
   }
 
   async handleDebugMessage(payload) {
