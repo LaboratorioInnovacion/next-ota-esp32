@@ -56,23 +56,20 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'MAC address is required' }, { status: 400 });
     }
 
-    // Obtener la hora en Argentina (UTC-3)
-    const nowArgentina = new Date(Date.now() - 3 * 60 * 60 * 1000);
-
     const device = await prisma.device.upsert({
       where: { mac },
       update: {
         name: name ?? undefined, // Actualiza el nombre si viene en el body
         version: version || undefined,
         status: status || undefined,
-        lastSeen: nowArgentina,
+        lastSeen: new Date(),
       },
       create: {
         mac,
         name: name ?? null,
         version: version || null,
         status: status || 'OFFLINE',
-        lastSeen: nowArgentina,
+        lastSeen: new Date(),
       },
     });
 

@@ -13,10 +13,10 @@ model Device {
   name        String?
   status      DeviceStatus @default(OFFLINE)
   version     String?
-  lastSeen    DateTime @default(now())
+  lastSeen    DateTime @default(dbgenerated("CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires'"))
   health      DeviceHealth @default(UNKNOWN)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime @default(dbgenerated("CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires'"))
+  updatedAt   DateTime @default(dbgenerated("CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires'"))
   
   debugLogs   DebugLog[]
   measurements Measurement[]
@@ -29,7 +29,8 @@ model DebugLog {
   deviceId  String?
   level     LogLevel @default(INFO)
   message   String
-  timestamp DateTime @default(now())
+  // timestamp DateTime @default(now())
+  timestamp DateTime @default(dbgenerated("CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires'"))
   
   device    Device?  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   
@@ -42,7 +43,8 @@ model Measurement {
   type      String
   value     Float
   unit      String?
-  timestamp DateTime @default(now())
+  timestamp DateTime @default(dbgenerated("CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires'"))
+  // timestamp DateTime @default(now())
   
   device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   
@@ -54,7 +56,7 @@ model Firmware {
   filename    String
   version     String
   size        Int
-  uploadedAt  DateTime @default(now())
+  uploadedAt  DateTime @default(dbgenerated("CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires'"))
   filePath    String
   
   @@map("firmware")
@@ -80,3 +82,85 @@ enum LogLevel {
   WARNING
   ERROR
 }
+// generator client {
+//   provider = "prisma-client-js"
+// }
+
+// datasource db {
+//   provider = "postgresql"
+//   url      = env("DATABASE_URL")
+// }
+
+// model Device {
+//   id          String   @id @default(cuid())
+//   mac         String   @unique
+//   name        String?
+//   status      DeviceStatus @default(OFFLINE)
+//   version     String?
+//   lastSeen    DateTime @default(now())
+//   health      DeviceHealth @default(UNKNOWN)
+//   createdAt   DateTime @default(now())
+//   updatedAt   DateTime @updatedAt
+  
+//   debugLogs   DebugLog[]
+//   measurements Measurement[]
+  
+//   @@map("devices")
+// }
+
+// model DebugLog {
+//   id        String   @id @default(cuid())
+//   deviceId  String?
+//   level     LogLevel @default(INFO)
+//   message   String
+//   timestamp DateTime @default(now())
+  
+//   device    Device?  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+//   @@map("debug_logs")
+// }
+
+// model Measurement {
+//   id        String   @id @default(cuid())
+//   deviceId  String
+//   type      String
+//   value     Float
+//   unit      String?
+//   timestamp DateTime @default(now())
+  
+//   device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  
+//   @@map("measurements")
+// }
+
+// model Firmware {
+//   id          String   @id @default(cuid())
+//   filename    String
+//   version     String
+//   size        Int
+//   uploadedAt  DateTime @default(now())
+//   filePath    String
+  
+//   @@map("firmware")
+// }
+
+// enum DeviceStatus {
+//   ONLINE
+//   OFFLINE
+//   UPDATING
+//   ERROR
+// }
+
+// enum DeviceHealth {
+//   HEALTHY
+//   WARNING
+//   CRITICAL
+//   UNKNOWN
+// }
+
+// enum LogLevel {
+//   DEBUG
+//   INFO
+//   WARNING
+//   ERROR
+// }
