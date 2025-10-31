@@ -1,0 +1,11 @@
+{
+  "functions": {
+    "app/api/**": {
+      "maxDuration": 30
+    }
+  },
+  "regions": ["iad1"],
+  "env": {
+    "NEXT_PRIVATE_STANDALONE": "true"
+  }
+}

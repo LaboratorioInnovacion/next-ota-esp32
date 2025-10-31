@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
+// Forzar renderizado dinámico para Vercel
+export const dynamic = 'force-dynamic';
+
 // GET /api/measurements?mac=AA:BB:CC:DD:EE:FF&deviceId=xxx&type=temperature&limit=100
 export async function GET(request: NextRequest) {
   try {
