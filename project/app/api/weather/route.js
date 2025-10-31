@@ -20,26 +20,45 @@ export async function POST(request) {
 
     // Log de datos recibidos para debugging
     console.log(`📡 Datos ESP32 recibidos: MAC=${mac}, T=${temperature}°C, H=${humidity}%, Version=${version}`);
+    
+    // Verificar conexión a la base de datos
+    try {
+      await prisma.$queryRaw`SELECT 1`;
+      console.log('✅ Conexión DB verificada');
+    } catch (dbError) {
+      console.error('❌ Error conexión DB:', dbError);
+      return NextResponse.json({ 
+        error: 'Database connection error',
+        details: dbError.message 
+      }, { status: 503 });
+    }
 
-    // Crear o actualizar el dispositivo según el esquema
-    const device = await prisma.device.upsert({
-      where: { mac },
-      update: {
-        name: name || undefined,
-        version: version || undefined,
-        status: 'ONLINE',
-        lastSeen: new Date(),
-        health: 'HEALTHY',
-      },
-      create: {
-        mac,
-        name: name || `ESP32_Meteo_${mac.slice(-5).replace(':', '')}`,
-        version: version || null,
-        status: 'ONLINE',
-        lastSeen: new Date(),
-        health: 'HEALTHY',
-      },
-    });
+    // Crear o actualizar el dispositivo según el esquema con timeout
+    console.log(`🔄 Actualizando dispositivo: ${mac}`);
+    const device = await Promise.race([
+      prisma.device.upsert({
+        where: { mac },
+        update: {
+          name: name || undefined,
+          version: version || undefined,
+          status: 'ONLINE',
+          lastSeen: new Date(),
+          health: 'HEALTHY',
+        },
+        create: {
+          mac,
+          name: name || `ESP32_Meteo_${mac.slice(-5).replace(':', '')}`,
+          version: version || null,
+          status: 'ONLINE',
+          lastSeen: new Date(),
+          health: 'HEALTHY',
+        },
+      }),
+      new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('Device upsert timeout')), 10000)
+      )
+    ]);
+    console.log(`✅ Dispositivo actualizado: ${device.id}`);
 
     // Preparar las mediciones a guardar según el esquema Measurement
     const measurements = [];
@@ -64,12 +83,18 @@ export async function POST(request) {
       });
     }
 
-    // Guardar todas las mediciones en la tabla measurements
+    // Guardar todas las mediciones en la tabla measurements con timeout
     let savedMeasurements = { count: 0 };
     if (measurements.length > 0) {
-      savedMeasurements = await prisma.measurement.createMany({
-        data: measurements,
-      });
+      console.log(`🔄 Guardando ${measurements.length} mediciones...`);
+      savedMeasurements = await Promise.race([
+        prisma.measurement.createMany({
+          data: measurements,
+        }),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Measurements insert timeout')), 10000)
+        )
+      ]);
       console.log(`💾 Mediciones guardadas: ${savedMeasurements.count}`);
     }
 

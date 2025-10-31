@@ -1,8 +1,15 @@
 {
-  "extends": "next/core-web-vitals",
+  "extends": ["next/core-web-vitals"],
+  "parser": "@babel/eslint-parser",
+  "parserOptions": {
+    "requireConfigFile": true,
+    "babelOptions": {
+      "presets": ["next/babel"]
+    }
+  },
   "rules": {
     "import/no-anonymous-default-export": "off",
     "@next/next/no-anonymous-default-export": "off"
   },
-  "ignorePatterns": ["app/api/**/*.js", "node_modules/**/*"]
+  "ignorePatterns": ["app/api/**/*.js", "node_modules/**/*", ".next/**/*"]
 }
