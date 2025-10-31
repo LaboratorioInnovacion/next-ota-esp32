@@ -148,6 +148,7 @@ void Esp32OTA::sendWeatherData(float temperature, float humidity, const char* en
   http.addHeader("Content-Type", "application/json");
 
   String payload = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName +
+                   "\",\"version\":\"" + _firmwareVersion +
                    "\",\"temperature\":" + String(temperature, 1) +
                    ",\"humidity\":" + String(humidity, 1) + "}";
 

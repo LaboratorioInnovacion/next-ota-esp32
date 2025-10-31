@@ -4,63 +4,75 @@ import { prisma } from '@/lib/prisma';
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mac, name, temperature, humidity } = body;
+    const { mac, name, version, temperature, humidity } = body;
 
     // Validar datos requeridos
-    if (!mac) {
-      return NextResponse.json({ error: 'MAC address is required' }, { status: 400 });
+    if (!mac || typeof mac !== 'string') {
+      return NextResponse.json({ error: 'Valid MAC address is required' }, { status: 400 });
     }
 
     if (temperature === undefined && humidity === undefined) {
       return NextResponse.json({ error: 'At least one measurement (temperature or humidity) is required' }, { status: 400 });
     }
 
-    // Crear o actualizar el dispositivo
+    // Log de datos recibidos para debugging
+    console.log(`📡 Datos ESP32 recibidos: MAC=${mac}, T=${temperature}°C, H=${humidity}%, Version=${version}`);
+
+    // Crear o actualizar el dispositivo según el esquema
     const device = await prisma.device.upsert({
       where: { mac },
       update: {
-        name: name ?? undefined,
+        name: name || undefined,
+        version: version || undefined,
         status: 'ONLINE',
         lastSeen: new Date(),
         health: 'HEALTHY',
       },
       create: {
         mac,
-        name: name ?? `ESP32_${mac.replace(/:/g, '')}`,
+        name: name || `ESP32_Meteo_${mac.slice(-5).replace(':', '')}`,
+        version: version || null,
         status: 'ONLINE',
         lastSeen: new Date(),
         health: 'HEALTHY',
       },
     });
 
-    // Preparar las mediciones a guardar
+    // Preparar las mediciones a guardar según el esquema Measurement
     const measurements = [];
 
-    if (temperature !== undefined) {
+    if (temperature !== undefined && !isNaN(parseFloat(temperature))) {
       measurements.push({
         deviceId: device.id,
         type: 'temperature',
         value: parseFloat(temperature),
         unit: '°C',
+        timestamp: new Date(), // Explícitamente según el esquema
       });
     }
 
-    if (humidity !== undefined) {
+    if (humidity !== undefined && !isNaN(parseFloat(humidity))) {
       measurements.push({
         deviceId: device.id,
         type: 'humidity',
         value: parseFloat(humidity),
         unit: '%',
+        timestamp: new Date(),
       });
     }
 
-    // Guardar todas las mediciones
-    const savedMeasurements = await prisma.measurement.createMany({
-      data: measurements,
-    });
+    // Guardar todas las mediciones en la tabla measurements
+    let savedMeasurements = { count: 0 };
+    if (measurements.length > 0) {
+      savedMeasurements = await prisma.measurement.createMany({
+        data: measurements,
+      });
+      console.log(`💾 Mediciones guardadas: ${savedMeasurements.count}`);
+    }
 
     // Emitir evento de Socket.IO para actualizaciones en tiempo real
     try {
+      await import('@/lib/socket-init'); // Asegurar que Socket.IO esté inicializado
       const { emitDeviceUpdate } = await import('@/lib/socket-server');
       emitDeviceUpdate({
         id: device.id,
@@ -137,7 +149,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Agrupar por dispositivo y timestamp para una respuesta más organizada
-    const groupedData = measurements.reduce((acc: any, measurement) => {
+    const groupedData = measurements.reduce((acc: any, measurement: any) => {
       const key = `${measurement.device.mac}_${measurement.timestamp.getTime()}`;
       
       if (!acc[key]) {

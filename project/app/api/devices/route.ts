@@ -54,7 +54,7 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { mac, name, version, status, temperature, humidity } = body;
 
-    // Validación mejorada
+    // Validación según el esquema Device
     if (!mac || typeof mac !== 'string') {
       return NextResponse.json({ error: 'Valid MAC address is required' }, { status: 400 });
     }
@@ -62,61 +62,42 @@ export async function POST(request: NextRequest) {
     // Si vienen datos de sensores, redirigir al endpoint correcto
     if (temperature !== undefined || humidity !== undefined) {
       console.log(`⚠️ Datos de sensores recibidos en /api/devices, deberían ir a /api/weather`);
-      console.log(`📊 Datos: temp=${temperature}, hum=${humidity}, mac=${mac}`);
+      console.log(`📊 Redirigiendo: temp=${temperature}, hum=${humidity}, mac=${mac}`);
+      
+      // Responder sugiriendo el endpoint correcto
+      return NextResponse.json({
+        warning: 'Sensor data should be sent to /api/weather endpoint',
+        suggestedEndpoint: '/api/weather',
+        receivedData: { temperature, humidity, mac }
+      }, { status: 400 });
     }
 
+    // Upsert del dispositivo según el esquema
     const device = await prisma.device.upsert({
       where: { mac },
       update: {
-        name: name ?? undefined,
+        name: name || undefined,
         version: version || undefined,
-        status: status || 'ONLINE', // Asumir ONLINE si está enviando datos
+        status: (status as any) || 'ONLINE', // Cast para TypeScript con los enums
         lastSeen: new Date(),
-        health: 'HEALTHY', // Asumir saludable si está comunicando
+        health: 'HEALTHY',
       },
       create: {
         mac,
-        name: name ?? `ESP32_${mac.replace(/:/g, '')}`, // Nombre por defecto más descriptivo
+        name: name || `ESP32_Device_${mac.slice(-5).replace(':', '')}`,
         version: version || null,
-        status: status || 'ONLINE',
+        status: (status as any) || 'ONLINE',
         lastSeen: new Date(),
         health: 'HEALTHY',
       },
     });
 
-    // Si hay datos de sensores, también guardarlos
-    let measurementsSaved = 0;
-    if (temperature !== undefined || humidity !== undefined) {
-      const measurements = [];
-
-      if (temperature !== undefined && !isNaN(parseFloat(temperature))) {
-        measurements.push({
-          deviceId: device.id,
-          type: 'temperature',
-          value: parseFloat(temperature),
-          unit: '°C',
-        });
-      }
-
-      if (humidity !== undefined && !isNaN(parseFloat(humidity))) {
-        measurements.push({
-          deviceId: device.id,
-          type: 'humidity',
-          value: parseFloat(humidity),
-          unit: '%',
-        });
-      }
-
-      if (measurements.length > 0) {
-        const result = await prisma.measurement.createMany({
-          data: measurements,
-        });
-        measurementsSaved = result.count;
-      }
-    }
+    // Los datos de sensores no se procesan aquí, solo gestión de dispositivos
+    console.log(`✅ Dispositivo actualizado: ${device.name} (${device.mac}) - Status: ${device.status}`);
 
     // Emitir evento de Socket.IO para actualizaciones en tiempo real
     try {
+      await import('@/lib/socket-init'); // Asegurar que Socket.IO esté inicializado
       const { emitDeviceUpdate } = await import('@/lib/socket-server');
       emitDeviceUpdate({
         id: device.id,
@@ -138,12 +119,11 @@ export async function POST(request: NextRequest) {
         mac: device.mac,
         name: device.name,
         status: device.status,
+        version: device.version,
         lastSeen: device.lastSeen,
+        health: device.health,
       },
-      measurementsSaved,
-      message: measurementsSaved > 0 ? 
-        'Device updated and measurements saved' : 
-        'Device updated (consider using /api/weather for sensor data)'
+      message: 'Device updated successfully. Use /api/weather for sensor data.'
     });
 
   } catch (error) {
