@@ -29,8 +29,7 @@ model DebugLog {
   deviceId  String?
   level     LogLevel @default(INFO)
   message   String
-  // timestamp DateTime @default(now())
-  timestamp DateTime @default(dbgenerated("CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires'"))
+  timestamp DateTime @default(now())
   
   device    Device?  @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   
@@ -43,8 +42,7 @@ model Measurement {
   type      String
   value     Float
   unit      String?
-  timestamp DateTime @default(dbgenerated("CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires'"))
-  // timestamp DateTime @default(now())
+  timestamp DateTime @default(now())
   
   device    Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
   
@@ -56,7 +54,7 @@ model Firmware {
   filename    String
   version     String
   size        Int
-  uploadedAt  DateTime @default(dbgenerated("CURRENT_TIMESTAMP AT TIME ZONE 'America/Argentina/Buenos_Aires'"))
+  uploadedAt  DateTime @default(now())
   filePath    String
   
   @@map("firmware")
