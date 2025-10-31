@@ -1,10 +1,10 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // Forzar renderizado dinámico para Vercel
 export const dynamic = 'force-dynamic';
 
-export async function POST(request: NextRequest) {
+export async function POST(request) {
   try {
     const body = await request.json();
     const { mac, name, version, temperature, humidity } = body;
@@ -50,7 +50,7 @@ export async function POST(request: NextRequest) {
         type: 'temperature',
         value: parseFloat(temperature),
         unit: '°C',
-        timestamp: new Date(), // Explícitamente según el esquema
+        timestamp: new Date(),
       });
     }
 
@@ -75,7 +75,7 @@ export async function POST(request: NextRequest) {
 
     // Emitir evento de Socket.IO para actualizaciones en tiempo real
     try {
-      await import('@/lib/socket-init'); // Asegurar que Socket.IO esté inicializado
+      await import('@/lib/socket-init');
       const { emitDeviceUpdate } = await import('@/lib/socket-server');
       emitDeviceUpdate({
         id: device.id,
@@ -116,13 +116,13 @@ export async function POST(request: NextRequest) {
 }
 
 // GET endpoint para obtener los últimos datos meteorológicos
-export async function GET(request: NextRequest) {
+export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const mac = searchParams.get('mac');
     const limit = parseInt(searchParams.get('limit') || '10', 10);
 
-    const where: any = {};
+    const where = {};
     if (mac) {
       // Buscar el dispositivo por MAC para obtener su ID
       const device = await prisma.device.findUnique({
@@ -152,7 +152,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Agrupar por dispositivo y timestamp para una respuesta más organizada
-    const groupedData = measurements.reduce((acc: any, measurement: any) => {
+    const groupedData = measurements.reduce((acc, measurement) => {
       const key = `${measurement.device.mac}_${measurement.timestamp.getTime()}`;
       
       if (!acc[key]) {

@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // Forzar renderizado dinámico para Vercel
@@ -52,7 +52,7 @@ export async function GET() {
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request) {
   try {
     const body = await request.json();
     const { mac, name, version, status, temperature, humidity } = body;
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
       update: {
         name: name || undefined,
         version: version || undefined,
-        status: (status as any) || 'ONLINE', // Cast para TypeScript con los enums
+        status: status || 'ONLINE',
         lastSeen: new Date(),
         health: 'HEALTHY',
       },
@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
         mac,
         name: name || `ESP32_Device_${mac.slice(-5).replace(':', '')}`,
         version: version || null,
-        status: (status as any) || 'ONLINE',
+        status: status || 'ONLINE',
         lastSeen: new Date(),
         health: 'HEALTHY',
       },
@@ -100,7 +100,7 @@ export async function POST(request: NextRequest) {
 
     // Emitir evento de Socket.IO para actualizaciones en tiempo real
     try {
-      await import('@/lib/socket-init'); // Asegurar que Socket.IO esté inicializado
+      await import('@/lib/socket-init');
       const { emitDeviceUpdate } = await import('@/lib/socket-server');
       emitDeviceUpdate({
         id: device.id,

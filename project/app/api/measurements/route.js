@@ -1,11 +1,11 @@
-import { NextRequest, NextResponse } from 'next/server';
+import { NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 
 // Forzar renderizado dinámico para Vercel
 export const dynamic = 'force-dynamic';
 
 // GET /api/measurements?mac=AA:BB:CC:DD:EE:FF&deviceId=xxx&type=temperature&limit=100
-export async function GET(request: NextRequest) {
+export async function GET(request) {
   try {
     const { searchParams } = new URL(request.url);
     const deviceId = searchParams.get('deviceId');
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
     const type = searchParams.get('type');
     const limit = parseInt(searchParams.get('limit') || '100', 10);
 
-    const where: any = {};
+    const where = {};
     
     // Filtrar por deviceId directo o por MAC
     if (deviceId) {
@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
     });
 
     // Agrupar por tipo para estadísticas básicas
-    const stats = measurements.reduce((acc: any, measurement) => {
+    const stats = measurements.reduce((acc, measurement) => {
       if (!acc[measurement.type]) {
         acc[measurement.type] = {
           count: 0,
