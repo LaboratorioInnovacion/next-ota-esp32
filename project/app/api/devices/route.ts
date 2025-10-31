@@ -52,32 +52,105 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json();
-    const { mac, name, version, status } = body;
+    const { mac, name, version, status, temperature, humidity } = body;
 
-    if (!mac) {
-      return NextResponse.json({ error: 'MAC address is required' }, { status: 400 });
+    // Validación mejorada
+    if (!mac || typeof mac !== 'string') {
+      return NextResponse.json({ error: 'Valid MAC address is required' }, { status: 400 });
+    }
+
+    // Si vienen datos de sensores, redirigir al endpoint correcto
+    if (temperature !== undefined || humidity !== undefined) {
+      console.log(`⚠️ Datos de sensores recibidos en /api/devices, deberían ir a /api/weather`);
+      console.log(`📊 Datos: temp=${temperature}, hum=${humidity}, mac=${mac}`);
     }
 
     const device = await prisma.device.upsert({
       where: { mac },
       update: {
-        name: name ?? undefined, // Actualiza el nombre si viene en el body
+        name: name ?? undefined,
         version: version || undefined,
-        status: status || undefined,
+        status: status || 'ONLINE', // Asumir ONLINE si está enviando datos
         lastSeen: new Date(),
+        health: 'HEALTHY', // Asumir saludable si está comunicando
       },
       create: {
         mac,
-        name: name ?? null,
+        name: name ?? `ESP32_${mac.replace(/:/g, '')}`, // Nombre por defecto más descriptivo
         version: version || null,
-        status: status || 'OFFLINE',
+        status: status || 'ONLINE',
         lastSeen: new Date(),
+        health: 'HEALTHY',
       },
     });
 
-    return NextResponse.json(device);
+    // Si hay datos de sensores, también guardarlos
+    let measurementsSaved = 0;
+    if (temperature !== undefined || humidity !== undefined) {
+      const measurements = [];
+
+      if (temperature !== undefined && !isNaN(parseFloat(temperature))) {
+        measurements.push({
+          deviceId: device.id,
+          type: 'temperature',
+          value: parseFloat(temperature),
+          unit: '°C',
+        });
+      }
+
+      if (humidity !== undefined && !isNaN(parseFloat(humidity))) {
+        measurements.push({
+          deviceId: device.id,
+          type: 'humidity',
+          value: parseFloat(humidity),
+          unit: '%',
+        });
+      }
+
+      if (measurements.length > 0) {
+        const result = await prisma.measurement.createMany({
+          data: measurements,
+        });
+        measurementsSaved = result.count;
+      }
+    }
+
+    // Emitir evento de Socket.IO para actualizaciones en tiempo real
+    try {
+      const { emitDeviceUpdate } = await import('@/lib/socket-server');
+      emitDeviceUpdate({
+        id: device.id,
+        mac: device.mac,
+        name: device.name,
+        status: device.status,
+        version: device.version,
+        lastSeen: device.lastSeen,
+        health: device.health,
+      });
+    } catch (error) {
+      console.log('Socket.IO not available:', error);
+    }
+
+    return NextResponse.json({
+      success: true,
+      device: {
+        id: device.id,
+        mac: device.mac,
+        name: device.name,
+        status: device.status,
+        lastSeen: device.lastSeen,
+      },
+      measurementsSaved,
+      message: measurementsSaved > 0 ? 
+        'Device updated and measurements saved' : 
+        'Device updated (consider using /api/weather for sensor data)'
+    });
+
   } catch (error) {
     console.error('Error creating/updating device:', error);
-    return NextResponse.json({ error: 'Failed to create/update device' }, { status: 500 });
+    return NextResponse.json({ 
+      error: 'Failed to create/update device',
+      details: error instanceof Error ? error.message : 'Unknown error'
+    }, { status: 500 });
   }
 }

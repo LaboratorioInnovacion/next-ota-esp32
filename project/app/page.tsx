@@ -4,6 +4,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { DeviceTable } from '@/components/device-table';
 import { DebugLogs } from '@/components/debug-logs';
 import { FirmwareUpload } from '@/components/firmware-upload';
+import { SensorData } from '@/components/sensor-data';
 import { useSocket } from '@/hooks/use-socket';
 import { Zap } from 'lucide-react';
 
@@ -192,6 +193,11 @@ export default function Dashboard() {
               </h2>
             </div>
             <DeviceTable devices={devices} loading={loading} />
+          </section>
+
+          {/* Sensor Data Section */}
+          <section>
+            <SensorData devices={devices} />
           </section>
 
           {/* Two column layout for Firmware Upload and Debug Logs */}

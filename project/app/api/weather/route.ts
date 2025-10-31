@@ -59,6 +59,22 @@ export async function POST(request: NextRequest) {
       data: measurements,
     });
 
+    // Emitir evento de Socket.IO para actualizaciones en tiempo real
+    try {
+      const { emitDeviceUpdate } = await import('@/lib/socket-server');
+      emitDeviceUpdate({
+        id: device.id,
+        mac: device.mac,
+        name: device.name,
+        status: device.status,
+        version: device.version,
+        lastSeen: device.lastSeen,
+        health: device.health,
+      });
+    } catch (error) {
+      console.log('Socket.IO not available:', error);
+    }
+
     // Respuesta exitosa
     return NextResponse.json({
       success: true,

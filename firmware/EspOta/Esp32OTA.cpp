@@ -69,19 +69,19 @@ void Esp32OTA::connectMQTT() {
   String clientId = "ESP32_" + deviceMac;
   String willMessage = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName + "\",\"status\":\"offline\"}";
 
-  while (!mqttClient.connected()) {
-    Serial.println("Conectando a MQTT...");
+  // Solo UN intento, no bucle infinito
+  if (!mqttClient.connected()) {
+    Serial.println("🔄 Intento de conexión MQTT...");
     if (mqttClient.connect(clientId.c_str(), _mqttUser, _mqttPass,
                            TOPIC_STATUS, 0, false, willMessage.c_str())) {
-      Serial.println("Conectado a MQTT.");
+      Serial.println("✅ MQTT conectado para OTA.");
       String onlineMsg = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName +
                          "\",\"status\":\"ONLINE\",\"version\":\"" + _firmwareVersion + "\"}";
       mqttClient.publish(TOPIC_STATUS, onlineMsg.c_str(), false);
       mqttClient.subscribe(TOPIC_UPDATE);
     } else {
-      Serial.print("Fallo MQTT, estado: ");
-      Serial.println(mqttClient.state());
-      delay(2000);
+      Serial.printf("⚠️ Fallo MQTT (estado: %d) - Continuando solo con HTTP\n", mqttClient.state());
+      // NO hacer delay ni reintentar automáticamente
     }
   }
 }
@@ -168,12 +168,24 @@ void Esp32OTA::sendHeartbeat() {
 }
 
 void Esp32OTA::loop() {
-  if (!mqttClient.connected()) connectMQTT();
-  mqttClient.loop();
-
-  if (millis() - lastHeartbeat > 60000) {
-    sendHeartbeat();
-    lastHeartbeat = millis();
+  // Solo intentar conectar si no está conectado (sin bloquear)
+  static unsigned long lastConnectAttempt = 0;
+  
+  if (!mqttClient.connected()) {
+    // Solo intentar reconectar cada 30 segundos
+    if (millis() - lastConnectAttempt > 30000) {
+      connectMQTT();
+      lastConnectAttempt = millis();
+    }
+  } else {
+    // Solo procesar MQTT si está conectado
+    mqttClient.loop();
+    
+    // Enviar heartbeat solo si está conectado
+    if (millis() - lastHeartbeat > 60000) {
+      sendHeartbeat();
+      lastHeartbeat = millis();
+    }
   }
 }
 

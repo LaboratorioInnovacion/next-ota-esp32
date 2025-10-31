@@ -1,6 +1,11 @@
 #include "Esp32OTA.h"
 #include "DHT.h"
 
+// Configuración del sensor DHT
+#define DHTPIN 15        // Pin donde está conectado el sensor DHT (cambia según tu conexión)
+#define DHTTYPE DHT11   // Tipo de sensor DHT (DHT11, DHT22, DHT21)
+DHT dht(DHTPIN, DHTTYPE);
+
 const char* ssids[] = {"Auditorio Nodo", "PB02", "PB202"};
 const char* passwords[] = {"auditorio.nodo", "12345678", "12345678"};
 
@@ -10,70 +15,46 @@ Esp32OTA esp(
   "ESP32_Meteo", "v1.0.1"
 );
 
+// Variables para controlar el envío de datos
+unsigned long lastHttpSent = 0;
+const unsigned long HTTP_INTERVAL = 1 * 60 * 1000; // 1 minuto en milisegundos (solo HTTP)
+
 void setup() {
-    dht.begin();
+  Serial.begin(115200);
+  Serial.println("🚀 Iniciando ESP32 Meteo Station...");
+  
+  dht.begin();
   esp.setWiFiNetworks(ssids, passwords, 3);
   esp.begin();
+  lastHttpSent = millis(); // Inicializar el timestamp
+  
+  Serial.println("✅ Setup completado - HTTP cada minuto, MQTT solo para OTA");
 }
 
 void loop() {
-  
+  // 1. Leer sensores (prioridad máxima)
   float temp = dht.readTemperature();
   float hum  = dht.readHumidity();
 
   if (!isnan(temp) && !isnan(hum)) {
-    esp.sendSensorData(temp, hum); // Envío por MQTT
-    esp.sendWeatherData(temp, hum, "https://api.misensores.com/meteo"); // Envío por HTTP
+    // 2. Envío por HTTP (funciona independientemente de MQTT)
+    if (millis() - lastHttpSent >= HTTP_INTERVAL) {
+      Serial.printf("📊 T: %.1f°C, H: %.1f%% - Enviando HTTP...\n", temp, hum);
+      esp.sendWeatherData(temp, hum, "https://next-ota-esp32.vercel.app/api/weather");
+      lastHttpSent = millis();
+      Serial.println("✅ HTTP enviado!");
+    }
   } else {
-    Serial.println("❌ Error leyendo el sensor DHT22");
+    Serial.println("❌ Error sensor DHT22");
   }
-  delay(60000);
+
+  // 3. MQTT solo para OTA (ahora no-bloqueante)
+  static unsigned long lastMqttCheck = 0;
+  if (millis() - lastMqttCheck > 60000) { // Cada minuto
+    Serial.println("🔍 Verificando MQTT para OTA...");
+    esp.loop(); // Ahora es no-bloqueante gracias a los cambios en Esp32OTA.cpp
+    lastMqttCheck = millis();
+  }
+  
+  delay(10000); // 10 segundos entre loops
 }
-
-// #include "Esp32OTA.h"
-// #include <DHT.h>
-
-// // Configuración (ajusta según tus credenciales y parámetros)
-// const char* WIFI_SSID     = "PB02";
-// const char* WIFI_PASSWORD = "12345678";
-// const char* MQTT_HOST     = "ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud";
-// const int   MQTT_PORT     = 8883;
-// const char* MQTT_USER     = "Augustodelcampo97";
-// const char* MQTT_PASS     = "Augustodelcampo97";
-// const char* DEVICE_NAME   = "ESPESTACION3";
-// const char* FIRMWARE_VER  = "1.0.0";
-
-
-// // Configuración del sensor DHT11
-// // #define DHTPIN 4 // Cambia el pin si es necesario
-// #define DHTPIN 15 // Cambia el pin si es necesario
-// #define DHTTYPE DHT11
-// DHT dht(DHTPIN, DHTTYPE);
-
-// // Instancia de la clase
-// Esp32OTA esp32OTA(WIFI_SSID, WIFI_PASSWORD, MQTT_HOST, MQTT_PORT, MQTT_USER, MQTT_PASS, DEVICE_NAME, FIRMWARE_VER);
-
-
-// unsigned long lastSensorSent = 0;
-
-// void setup() {
-//   esp32OTA.begin();
-//   dht.begin();
-// }
-
-
-// void loop() {
-//   esp32OTA.loop();
-
-//   // Enviar datos del sensor cada 10 minutos (600000 ms)
-//   if (millis() - lastSensorSent > 600000) {
-//     float temp = dht.readTemperature();
-//     float hum = dht.readHumidity();
-//     if (!isnan(temp) && !isnan(hum)) {
-//       esp32OTA.sendSensorData(temp, hum);
-//     }
-//     lastSensorSent = millis();
-//   }
-
-//   delay(10);
-// }
