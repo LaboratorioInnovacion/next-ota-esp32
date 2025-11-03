@@ -19,7 +19,8 @@ public:
   Esp32OTA(const char* mqttHost, int mqttPort,
            const char* mqttUser, const char* mqttPass,
            const char* deviceName, const char* firmwareVersion);
-
+  // Permite configurar la ubicación geográfica
+  void setLocation(float lat, float lon);
   // Inicializa la conexión WiFi y MQTT, y obtiene la MAC.
   void begin();
 
@@ -46,7 +47,8 @@ private:
   void connectMQTT();
   void mqttCallback(char* topic, byte* payload, unsigned int length);
   void doOTA(const String &url);
-
+  float _latitude = 0.0;
+  float _longitude = 0.0;
   const char* _mqttHost;
   int         _mqttPort;
   const char* _mqttUser;

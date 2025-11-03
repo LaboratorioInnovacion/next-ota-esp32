@@ -1,4 +1,8 @@
 #include "Esp32OTA.h"
+void Esp32OTA::setLocation(float lat, float lon) {
+  _latitude = lat;
+  _longitude = lon;
+}
 
 Esp32OTA::Esp32OTA(const char* mqttHost, int mqttPort,
                    const char* mqttUser, const char* mqttPass,
@@ -147,10 +151,16 @@ void Esp32OTA::sendWeatherData(float temperature, float humidity, const char* en
   http.begin(endpointUrl);
   http.addHeader("Content-Type", "application/json");
 
-  String payload = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName +
-                   "\",\"version\":\"" + _firmwareVersion +
-                   "\",\"temperature\":" + String(temperature, 1) +
-                   ",\"humidity\":" + String(humidity, 1) + "}";
+  // String payload = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName +
+  //                  "\",\"version\":\"" + _firmwareVersion +
+  //                  "\",\"temperature\":" + String(temperature, 1) +
+  //                  ",\"humidity\":" + String(humidity, 1) + "}";
+String payload = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName +
+                 "\",\"version\":\"" + _firmwareVersion +
+                 "\",\"temperature\":" + String(temperature, 1) +
+                 ",\"humidity\":" + String(humidity, 1) +
+                 ",\"latitude\":" + String(_latitude, 6) +
+                 ",\"longitude\":" + String(_longitude, 6) + "}";
 
   int httpCode = http.POST(payload);
   if (httpCode > 0) {

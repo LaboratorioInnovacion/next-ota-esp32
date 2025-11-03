@@ -1,0 +1,32 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Station {
+  id        String   @id @default(cuid())
+  mac       String   @unique
+  name      String
+  status    String   @default("online")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  readings  Reading[]
+
+  @@index([mac])
+}
+
+model Reading {
+  id          String   @id @default(cuid())
+  stationId   String
+  station     Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  temperature Float
+  humidity    Float
+  timestamp   DateTime @default(now())
+
+  @@index([stationId, timestamp])
+  @@index([timestamp])
+}

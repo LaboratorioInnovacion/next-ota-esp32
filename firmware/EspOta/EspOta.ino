@@ -26,6 +26,8 @@ void setup() {
   dht.begin();
   esp.setWiFiNetworks(ssids, passwords, 3);
   esp.begin();
+    // 👉 Establecer ubicación geográfica
+  esp.setLocation(-28.4696, -65.7852); // Catamarca, Argentina
   lastHttpSent = millis(); // Inicializar el timestamp
   
   Serial.println("✅ Setup completado - HTTP cada minuto, MQTT solo para OTA");
