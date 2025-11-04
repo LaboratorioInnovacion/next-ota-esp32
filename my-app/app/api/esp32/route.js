@@ -22,6 +22,8 @@ export async function POST(request) {
           mac,
           name: name || `ESP32_${mac.slice(-4)}`,
           status: "online",
+          latitude: lat || null,
+          longitude: lon || null,
         },
       })
     } else {
@@ -31,6 +33,8 @@ export async function POST(request) {
         data: {
           status: "online",
           updatedAt: new Date(),
+          ...(lat !== undefined && { latitude: lat }),
+          ...(lon !== undefined && { longitude: lon }),
         },
       })
     }

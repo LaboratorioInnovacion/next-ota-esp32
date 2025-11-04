@@ -26,6 +26,8 @@ export async function GET() {
       lastUpdate: station.updatedAt,
       temperature: station.readings[0]?.temperature || null,
       humidity: station.readings[0]?.humidity || null,
+      latitude: station.latitude || null,
+      longitude: station.longitude || null,
     }))
 
     return NextResponse.json(
