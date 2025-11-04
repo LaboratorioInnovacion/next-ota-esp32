@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-// import { prisma } from "@/lib/prisma" // Desactivado hasta configurar base de datos
-import { mockDb } from "@/lib/mock-data" // Usando datos en memoria temporalmente
+import { prisma } from "@/lib/prisma"
 
 export async function POST(request) {
   try {
@@ -10,12 +9,12 @@ export async function POST(request) {
       return NextResponse.json({ error: "Datos incompletos" }, { status: 400 })
     }
 
-    let station = await mockDb.stations.findUnique({
+    let station = await prisma.station.findUnique({
       where: { mac: data.mac },
     })
 
     if (!station) {
-      station = await mockDb.stations.create({
+      station = await prisma.station.create({
         data: {
           mac: data.mac,
           name: data.name,
@@ -24,7 +23,7 @@ export async function POST(request) {
       })
     } else {
       // Actualizar última vez vista
-      await mockDb.stations.update({
+      await prisma.station.update({
         where: { id: station.id },
         data: {
           status: "online",
@@ -33,7 +32,7 @@ export async function POST(request) {
       })
     }
 
-    const reading = await mockDb.reading.create({
+    const reading = await prisma.reading.create({
       data: {
         stationId: station.id,
         temperature: data.temperature,
@@ -64,33 +63,38 @@ export async function GET(request) {
     const mac = searchParams.get("mac")
     const limit = Number.parseInt(searchParams.get("limit") || "100")
 
-    let readings = await mockDb.reading.findMany({
-      orderBy: {
-        timestamp: "desc",
-      },
-    })
-
+    let whereClause = {}
+    
     // Filtrar por MAC si se proporciona
     if (mac) {
-      const station = await mockDb.stations.findUnique({ where: { mac } })
+      const station = await prisma.station.findUnique({ where: { mac } })
       if (station) {
-        readings = readings.filter((r) => r.stationId === station.id)
+        whereClause.stationId = station.id
       } else {
-        readings = []
+        // Si no se encuentra la estación, devolver array vacío
+        return NextResponse.json({
+          success: true,
+          count: 0,
+          data: [],
+        })
       }
     }
 
-    // Agregar información de la estación a cada lectura
-    const readingsWithStation = await Promise.all(
-      readings.slice(0, limit).map(async (reading) => {
-        const stations = await mockDb.stations.findMany()
-        const station = stations.find((s) => s.id === reading.stationId)
-        return {
-          ...reading,
-          station,
-        }
-      }),
-    )
+    const readings = await prisma.reading.findMany({
+      where: whereClause,
+      include: {
+        station: true,
+      },
+      orderBy: {
+        timestamp: "desc",
+      },
+      take: limit,
+    })
+
+    const readingsWithStation = readings.map(reading => ({
+      ...reading,
+      station: reading.station,
+    }))
 
     return NextResponse.json(
       {

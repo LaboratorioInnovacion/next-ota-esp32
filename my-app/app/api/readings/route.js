@@ -1,6 +1,5 @@
 import { NextResponse } from "next/server"
-// import { prisma } from "@/lib/prisma" // Desactivado hasta configurar base de datos
-import { mockDb } from "@/lib/mock-data" // Usando datos en memoria temporalmente
+import { prisma } from "@/lib/prisma"
 
 export async function GET(request) {
   try {
@@ -22,7 +21,7 @@ export async function GET(request) {
       startDate.setDate(now.getDate() - 30)
     }
 
-    const readings = await mockDb.reading.findMany({
+    const readings = await prisma.reading.findMany({
       where: {
         stationId,
         timestamp: {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server"
-import { mockDb } from "@/lib/mock-data"
+import { prisma } from "@/lib/prisma"
 
 // Endpoint para recibir datos de los ESP32
 export async function POST(request) {
@@ -13,33 +13,30 @@ export async function POST(request) {
     }
 
     // Buscar o crear estación
-    let station = await mockDb.stations.findUnique({ where: { mac } })
+    let station = await prisma.station.findUnique({ where: { mac } })
 
     if (!station) {
       // Crear nueva estación
-      station = await mockDb.stations.create({
+      station = await prisma.station.create({
         data: {
           mac,
           name: name || `ESP32_${mac.slice(-4)}`,
-          status: "active",
-          latitude: lat || null,
-          longitude: lon || null,
+          status: "online",
         },
       })
     } else {
       // Actualizar estación existente
-      station = await mockDb.stations.update({
+      station = await prisma.station.update({
         where: { id: station.id },
         data: {
-          status: "active",
-          ...(lat !== undefined && { latitude: lat }),
-          ...(lon !== undefined && { longitude: lon }),
+          status: "online",
+          updatedAt: new Date(),
         },
       })
     }
 
     // Crear nueva lectura
-    await mockDb.reading.create({
+    await prisma.reading.create({
       data: {
         stationId: station.id,
         temperature,

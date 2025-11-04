@@ -159,8 +159,8 @@ String payload = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName +
                  "\",\"version\":\"" + _firmwareVersion +
                  "\",\"temperature\":" + String(temperature, 1) +
                  ",\"humidity\":" + String(humidity, 1) +
-                 ",\"latitude\":" + String(_latitude, 6) +
-                 ",\"longitude\":" + String(_longitude, 6) + "}";
+                 ",\"lat\":" + String(_latitude, 6) +
+                 ",\"lon\":" + String(_longitude, 6) + "}";
 
   int httpCode = http.POST(payload);
   if (httpCode > 0) {

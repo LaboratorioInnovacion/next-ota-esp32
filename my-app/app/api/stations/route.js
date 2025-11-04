@@ -1,10 +1,9 @@
 import { NextResponse } from "next/server"
-// import { prisma } from "@/lib/prisma" // Desactivado hasta configurar base de datos
-import { mockDb } from "@/lib/mock-data" // Usando datos en memoria temporalmente
+import { prisma } from "@/lib/prisma"
 
 export async function GET() {
   try {
-    const stations = await mockDb.stations.findMany({
+    const stations = await prisma.station.findMany({
       include: {
         readings: {
           orderBy: {
@@ -27,8 +26,6 @@ export async function GET() {
       lastUpdate: station.updatedAt,
       temperature: station.readings[0]?.temperature || null,
       humidity: station.readings[0]?.humidity || null,
-      latitude: station.latitude || null,
-      longitude: station.longitude || null,
     }))
 
     return NextResponse.json(
