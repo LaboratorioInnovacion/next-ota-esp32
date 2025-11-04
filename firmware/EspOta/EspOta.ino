@@ -42,7 +42,7 @@ void loop() {
     // 2. Envío por HTTP (funciona independientemente de MQTT)
     if (millis() - lastHttpSent >= HTTP_INTERVAL) {
       Serial.printf("📊 T: %.1f°C, H: %.1f%% - Enviando HTTP...\n", temp, hum);
-      esp.sendWeatherData(temp, hum, "https://next-ota-esp32.vercel.app/api/weather");
+      esp.sendWeatherData(temp, hum, "https://miniestaciones.vercel.app/api/esp32");
       lastHttpSent = millis();
       Serial.println("✅ HTTP enviado!");
     }
