@@ -13,7 +13,7 @@ export function StationsMap({ stations, onStationClick }) {
   const isInitializedRef = useRef(false)
 
   useEffect(() => {
-    if (typeof window === "undefined" || isInitializedRef.current) return
+    if (typeof window === "undefined") return
 
     const loadMap = async () => {
       try {
@@ -28,7 +28,34 @@ export function StationsMap({ stations, onStationClick }) {
           document.head.appendChild(link)
         }
 
-        if (!mapRef.current) return
+        if (!mapRef.current) {
+          console.error("[v0] Map container ref is null")
+          return
+        }
+
+        // Check if container is in DOM
+        if (!document.contains(mapRef.current)) {
+          console.error("[v0] Map container is not in DOM")
+          return
+        }
+
+        // If there is an existing map instance, remove it first.
+        // Avoid reading/writing Leaflet private properties like `_leaflet_id`.
+        if (mapInstanceRef.current) {
+          console.log("[v0] Existing map instance found, removing before init...")
+          try {
+            mapInstanceRef.current.remove()
+          } catch (e) {
+            console.error("[v0] Error removing previous map instance:", e)
+          }
+          mapInstanceRef.current = null
+        }
+
+        // Prevent double initialization
+        if (isInitializedRef.current && mapInstanceRef.current) {
+          console.log("[v0] Map already initialized, skipping...")
+          return
+        }
 
         // Calculate center from stations
         const validStations = stations.filter((s) => s.latitude && s.longitude)
@@ -41,6 +68,7 @@ export function StationsMap({ stations, onStationClick }) {
             ? validStations.reduce((sum, s) => sum + s.longitude, 0) / validStations.length
             : -65.77
 
+        console.log("[v0] Initializing new map instance...")
         const map = L.map(mapRef.current, {
           center: [centerLat, centerLon],
           zoom: 12,
@@ -55,15 +83,39 @@ export function StationsMap({ stations, onStationClick }) {
         mapInstanceRef.current = map
         isInitializedRef.current = true
 
-        setTimeout(() => {
+        // Wait for the map to be fully loaded before adding markers
+        map.whenReady(() => {
+          console.log("[v0] Map is ready, adding markers...")
           updateMarkers(L, map)
-        }, 100)
+        })
+
+        // Fallback timeout in case whenReady doesn't fire
+        setTimeout(() => {
+          if (map && L && mapRef.current && !markersRef.current.length) {
+            console.log("[v0] Fallback: Calling updateMarkers via timeout")
+            updateMarkers(L, map)
+          }
+        }, 500)
       } catch (error) {
         console.error("[v0] Error initializing map:", error)
       }
     }
 
     const updateMarkers = (L, map) => {
+      // Verify map instance exists
+      if (!map) {
+        console.error("[v0] Map parameter is undefined in updateMarkers")
+        return
+      }
+
+      // Verify Leaflet library exists
+      if (!L) {
+        console.error("[v0] Leaflet library is undefined in updateMarkers")
+        return
+      }
+
+      console.log("[v0] Starting marker update with valid parameters")
+
       // Clear existing markers
       markersRef.current.forEach((marker) => {
         try {
@@ -105,8 +157,16 @@ export function StationsMap({ stations, onStationClick }) {
           })
 
           const marker = L.marker([station.latitude, station.longitude], { icon })
-            .addTo(map)
-            .bindPopup(
+
+          // Verify map parameter exists before adding marker
+          if (!map) {
+            console.error("[v0] Map parameter is undefined during marker creation")
+            return
+          }
+
+          marker.addTo(map)
+          
+          marker.bindPopup(
               `
               <div style="font-family: system-ui; min-width: 200px;">
                 <h3 style="margin: 0 0 8px 0; font-weight: 600; font-size: 14px;">${station.name}</h3>
@@ -127,32 +187,26 @@ export function StationsMap({ stations, onStationClick }) {
                 `
                     : '<div style="font-size: 12px; color: #999;">Sin datos</div>'
                 }
-                <button 
-                  onclick="window.location.href='/station/${station.id}'" 
-                  style="
-                    margin-top: 12px;
-                    width: 100%;
-                    padding: 6px 12px;
-                    background: oklch(0.65 0.24 264);
-                    color: white;
-                    border: none;
-                    border-radius: 6px;
-                    font-size: 12px;
-                    font-weight: 600;
-                    cursor: pointer;
-                  "
-                >
-                  Ver Detalles
-                </button>
               </div>
-            `,
-            )
+            `
+          )
 
-          marker.on("click", () => {
+          marker.on("click", (e) => {
+            try {
+              e.originalEvent?.stopPropagation()
+              e.originalEvent?.preventDefault()
+            } catch (_) {}
+
             if (onStationClick) {
               onStationClick(station)
+            } else {
+              // Fallback: navigate to station detail page when no handler is provided
+              try {
+                router.push(`/station/${station.id}`)
+              } catch (err) {
+                console.error("[v0] Error navigating to station page:", err)
+              }
             }
-            router.push(`/station/${station.id}`)
           })
 
           markersRef.current.push(marker)
@@ -169,6 +223,7 @@ export function StationsMap({ stations, onStationClick }) {
     loadMap()
 
     return () => {
+      console.log("[v0] Cleaning up map...")
       // Clear markers first
       markersRef.current.forEach((marker) => {
         try {
@@ -179,29 +234,49 @@ export function StationsMap({ stations, onStationClick }) {
       })
       markersRef.current = []
 
-      // Remove map instance with delay to allow animations to complete
+      // Remove map instance
       if (mapInstanceRef.current) {
         try {
-          setTimeout(() => {
-            if (mapInstanceRef.current) {
-              mapInstanceRef.current.remove()
-              mapInstanceRef.current = null
-            }
-          }, 100)
+          mapInstanceRef.current.remove()
+          mapInstanceRef.current = null
         } catch (e) {
-          // Ignore errors during cleanup
+          console.error("[v0] Error removing map:", e)
         }
       }
+
+      // Clear container content (do not touch Leaflet private props)
+      if (mapRef.current) {
+        try {
+          mapRef.current.innerHTML = ""
+        } catch (e) {
+          console.error("[v0] Error clearing container:", e)
+        }
+      }
+      
       isInitializedRef.current = false
     }
-  }, []) // Empty dependency array to only initialize once
+  }, [stations]) // Include stations to reinitialize when they change
 
   useEffect(() => {
-    if (!mapInstanceRef.current || !isInitializedRef.current) return
+    if (!mapInstanceRef.current || !isInitializedRef.current) {
+      console.log("[v0] Map not ready for marker updates, skipping...")
+      return
+    }
+
+    // Add a small delay to ensure map is fully ready
+    const timeoutId = setTimeout(() => {
+      updateMarkersOnly()
+    }, 100)
 
     const updateMarkersOnly = async () => {
       try {
         const L = (await import("leaflet")).default
+
+        // Double check that map instance still exists
+        if (!mapInstanceRef.current) {
+          console.log("[v0] Map instance no longer exists during marker update")
+          return
+        }
 
         // Clear existing markers
         markersRef.current.forEach((marker) => {
@@ -244,8 +319,16 @@ export function StationsMap({ stations, onStationClick }) {
             })
 
             const marker = L.marker([station.latitude, station.longitude], { icon })
-              .addTo(mapInstanceRef.current)
-              .bindPopup(
+
+            // Verify map instance still exists before adding marker
+            if (!mapInstanceRef.current) {
+              console.log("[v0] Map instance lost during marker creation")
+              return
+            }
+
+            marker.addTo(mapInstanceRef.current)
+            
+            marker.bindPopup(
                 `
                 <div style="font-family: system-ui; min-width: 200px;">
                   <h3 style="margin: 0 0 8px 0; font-weight: 600; font-size: 14px;">${station.name}</h3>
@@ -266,32 +349,18 @@ export function StationsMap({ stations, onStationClick }) {
                   `
                       : '<div style="font-size: 12px; color: #999;">Sin datos</div>'
                   }
-                  <button 
-                    onclick="window.location.href='/station/${station.id}'" 
-                    style="
-                      margin-top: 12px;
-                      width: 100%;
-                      padding: 6px 12px;
-                      background: oklch(0.65 0.24 264);
-                      color: white;
-                      border: none;
-                      border-radius: 6px;
-                      font-size: 12px;
-                      font-weight: 600;
-                      cursor: pointer;
-                    "
-                  >
-                    Ver Detalles
-                  </button>
                 </div>
-              `,
-              )
+              `
+            )
 
-            marker.on("click", () => {
+            marker.on("click", (e) => {
+              e.originalEvent?.stopPropagation()
+              e.originalEvent?.preventDefault()
+              
               if (onStationClick) {
                 onStationClick(station)
               }
-              router.push(`/station/${station.id}`)
+              // Removido router.push para evitar navegación
             })
 
             markersRef.current.push(marker)
@@ -302,7 +371,11 @@ export function StationsMap({ stations, onStationClick }) {
       }
     }
 
-    updateMarkersOnly()
+    return () => {
+      if (timeoutId) {
+        clearTimeout(timeoutId)
+      }
+    }
   }, [stations, onStationClick, router])
 
   return (

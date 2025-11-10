@@ -1,26 +1,26 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { MapPin } from "lucide-react"
 
-export function SingleStationMap({ station }) {
-  const mapRef = useRef(null)
+export function SingleStationMapV3({ station }) {
+  const containerRef = useRef(null)
   const mapInstanceRef = useRef(null)
-  const isInitializingRef = useRef(false)
+  const [mapKey, setMapKey] = useState(0)
+
+  // Force complete re-render when station changes
+  useEffect(() => {
+    setMapKey(prev => prev + 1)
+  }, [station.id])
 
   useEffect(() => {
     if (typeof window === "undefined" || !station?.latitude || !station?.longitude) return
 
-    // Prevenir múltiples inicializaciones simultáneas
-    if (isInitializingRef.current) {
-      console.log("[SingleStationMap] Already initializing, skipping...")
-      return
-    }
-
     const initMap = async () => {
       try {
-        isInitializingRef.current = true
+        console.log("[SingleStationMapV3] Initializing map for station:", station.id, "key:", mapKey)
+        
         const L = (await import("leaflet")).default
 
         // Add Leaflet CSS if not already added
@@ -32,37 +32,16 @@ export function SingleStationMap({ station }) {
           document.head.appendChild(link)
         }
 
-        if (!mapRef.current) {
-          console.error("[SingleStationMap] Map container ref is null")
+        if (!containerRef.current) {
+          console.error("[SingleStationMapV3] Map container ref is null")
           return
         }
 
-        // Verificar si ya tenemos una instancia de mapa guardada y limpiarla
-        if (mapInstanceRef.current) {
-          console.log("[SingleStationMap] Removing previous map instance...")
-          try {
-            mapInstanceRef.current.remove()
-          } catch (e) {
-            console.error("[SingleStationMap] Error removing previous map:", e)
-          }
-          mapInstanceRef.current = null
-        }
+        // Wait a bit to ensure component is fully mounted
+        await new Promise(resolve => setTimeout(resolve, 100))
 
-        // Limpiar completamente el contenedor HTML para evitar conflictos
-        const mapContainer = document.getElementById(`map-${station.id}`)
-        if (mapContainer) {
-          mapContainer.innerHTML = ""
-        }
-        
-        if (mapRef.current) {
-          mapRef.current.innerHTML = ""
-        }
-
-        // Pequeña pausa para asegurar que el DOM se actualice
-        await new Promise(resolve => setTimeout(resolve, 50))
-
-        console.log("[SingleStationMap] Initializing map for station:", station.id)
-        const map = L.map(mapRef.current, {
+        console.log("[SingleStationMapV3] Creating map for:", station.id)
+        const map = L.map(containerRef.current, {
           center: [station.latitude, station.longitude],
           zoom: 15,
           zoomControl: true,
@@ -113,38 +92,38 @@ export function SingleStationMap({ station }) {
           .openPopup()
 
         mapInstanceRef.current = map
+        console.log("[SingleStationMapV3] Map initialized successfully")
 
+        // Invalidate size after a delay
         setTimeout(() => {
           try {
             if (mapInstanceRef.current) {
               mapInstanceRef.current.invalidateSize()
             }
           } catch (e) {
-            console.error("[SingleStationMap] Error invalidating size:", e)
+            console.warn("[SingleStationMapV3] Error invalidating size:", e)
           }
         }, 100)
+
       } catch (error) {
-        console.error("[SingleStationMap] Error initializing single station map:", error)
-      } finally {
-        isInitializingRef.current = false
+        console.error("[SingleStationMapV3] Error initializing map:", error)
       }
     }
 
     initMap()
 
     return () => {
-      console.log("[SingleStationMap] Cleanup called for station:", station?.id)
-      isInitializingRef.current = false
+      console.log("[SingleStationMapV3] Cleanup called")
       if (mapInstanceRef.current) {
         try {
           mapInstanceRef.current.remove()
         } catch (e) {
-          console.error("[SingleStationMap] Error during cleanup:", e)
+          console.warn("[SingleStationMapV3] Error during cleanup:", e)
         }
         mapInstanceRef.current = null
       }
     }
-  }, []) // Empty dependency array since we're using key for remounting
+  }, [mapKey]) // Re-run when mapKey changes
 
   if (!station?.latitude || !station?.longitude) {
     return (
@@ -165,7 +144,8 @@ export function SingleStationMap({ station }) {
           Coordenadas: {station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}
         </p>
       </div>
-      <div ref={mapRef} id={`map-${station.id}`} className="h-[400px] w-full" />
+      {/* Force complete remount with key */}
+      <div key={mapKey} ref={containerRef} className="h-[400px] w-full" />
     </Card>
   )
 }

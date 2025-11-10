@@ -1,26 +1,32 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Card } from "@/components/ui/card"
 import { MapPin } from "lucide-react"
 
-export function SingleStationMap({ station }) {
+export function SingleStationMapV2({ station }) {
   const mapRef = useRef(null)
   const mapInstanceRef = useRef(null)
-  const isInitializingRef = useRef(false)
+  const [mapId] = useState(() => `map-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`)
 
   useEffect(() => {
     if (typeof window === "undefined" || !station?.latitude || !station?.longitude) return
 
-    // Prevenir múltiples inicializaciones simultáneas
-    if (isInitializingRef.current) {
-      console.log("[SingleStationMap] Already initializing, skipping...")
-      return
-    }
-
     const initMap = async () => {
       try {
-        isInitializingRef.current = true
+        console.log("[SingleStationMapV2] Starting map initialization for station:", station.id)
+        
+        // Cleanup any existing map first
+        if (mapInstanceRef.current) {
+          console.log("[SingleStationMapV2] Removing existing map instance")
+          try {
+            mapInstanceRef.current.remove()
+          } catch (e) {
+            console.warn("[SingleStationMapV2] Error removing previous map:", e)
+          }
+          mapInstanceRef.current = null
+        }
+
         const L = (await import("leaflet")).default
 
         // Add Leaflet CSS if not already added
@@ -33,40 +39,56 @@ export function SingleStationMap({ station }) {
         }
 
         if (!mapRef.current) {
-          console.error("[SingleStationMap] Map container ref is null")
+          console.error("[SingleStationMapV2] Map container ref is null")
           return
         }
 
-        // Verificar si ya tenemos una instancia de mapa guardada y limpiarla
-        if (mapInstanceRef.current) {
-          console.log("[SingleStationMap] Removing previous map instance...")
-          try {
-            mapInstanceRef.current.remove()
-          } catch (e) {
-            console.error("[SingleStationMap] Error removing previous map:", e)
-          }
-          mapInstanceRef.current = null
-        }
-
-        // Limpiar completamente el contenedor HTML para evitar conflictos
-        const mapContainer = document.getElementById(`map-${station.id}`)
-        if (mapContainer) {
-          mapContainer.innerHTML = ""
-        }
-        
+        // Clear container completely and wait longer
         if (mapRef.current) {
           mapRef.current.innerHTML = ""
+          // Remove any Leaflet-specific attributes that might remain
+          mapRef.current.removeAttribute('data-leaflet-map')
+          mapRef.current.classList.remove('leaflet-container')
         }
+        
+        // Wait longer for DOM cleanup and any pending operations
+        await new Promise(resolve => setTimeout(resolve, 200))
 
-        // Pequeña pausa para asegurar que el DOM se actualice
-        await new Promise(resolve => setTimeout(resolve, 50))
-
-        console.log("[SingleStationMap] Initializing map for station:", station.id)
-        const map = L.map(mapRef.current, {
-          center: [station.latitude, station.longitude],
-          zoom: 15,
-          zoomControl: true,
-        })
+        console.log("[SingleStationMapV2] Creating map instance for:", station.id)
+        
+        // Try-catch around map creation with retry logic
+        let map
+        let retryCount = 0
+        const maxRetries = 3
+        
+        while (retryCount < maxRetries) {
+          try {
+            map = L.map(mapRef.current, {
+              center: [station.latitude, station.longitude],
+              zoom: 15,
+              zoomControl: true,
+            })
+            console.log("[SingleStationMapV2] Map created successfully on attempt", retryCount + 1)
+            break
+          } catch (error) {
+            retryCount++
+            console.warn(`[SingleStationMapV2] Map creation attempt ${retryCount} failed:`, error.message)
+            
+            if (retryCount < maxRetries) {
+              // Clear container more aggressively and wait
+              if (mapRef.current) {
+                mapRef.current.innerHTML = ""
+                const newDiv = document.createElement('div')
+                newDiv.className = 'h-[400px] w-full'
+                mapRef.current.parentNode.replaceChild(newDiv, mapRef.current)
+                mapRef.current = newDiv
+              }
+              await new Promise(resolve => setTimeout(resolve, 300))
+            } else {
+              throw error
+            }
+          }
+        }
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -113,38 +135,40 @@ export function SingleStationMap({ station }) {
           .openPopup()
 
         mapInstanceRef.current = map
+        console.log("[SingleStationMapV2] Map initialized successfully for station:", station.id)
 
+        // Invalidate size after a short delay to ensure proper rendering
         setTimeout(() => {
           try {
             if (mapInstanceRef.current) {
               mapInstanceRef.current.invalidateSize()
             }
           } catch (e) {
-            console.error("[SingleStationMap] Error invalidating size:", e)
+            console.warn("[SingleStationMapV2] Error invalidating size:", e)
           }
         }, 100)
+
       } catch (error) {
-        console.error("[SingleStationMap] Error initializing single station map:", error)
-      } finally {
-        isInitializingRef.current = false
+        console.error("[SingleStationMapV2] Error initializing map:", error)
       }
     }
 
+    // Initialize map
     initMap()
 
+    // Cleanup function
     return () => {
-      console.log("[SingleStationMap] Cleanup called for station:", station?.id)
-      isInitializingRef.current = false
+      console.log("[SingleStationMapV2] Cleanup called for station:", station?.id)
       if (mapInstanceRef.current) {
         try {
           mapInstanceRef.current.remove()
         } catch (e) {
-          console.error("[SingleStationMap] Error during cleanup:", e)
+          console.warn("[SingleStationMapV2] Error during cleanup:", e)
         }
         mapInstanceRef.current = null
       }
     }
-  }, []) // Empty dependency array since we're using key for remounting
+  }, [station.id, station.latitude, station.longitude]) // Re-initialize when station changes
 
   if (!station?.latitude || !station?.longitude) {
     return (
@@ -165,7 +189,7 @@ export function SingleStationMap({ station }) {
           Coordenadas: {station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}
         </p>
       </div>
-      <div ref={mapRef} id={`map-${station.id}`} className="h-[400px] w-full" />
+      <div ref={mapRef} id={mapId} className="h-[400px] w-full" />
     </Card>
   )
 }

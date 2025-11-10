@@ -1,29 +1,27 @@
 "use client"
 
-import { useEffect, useRef } from "react"
+import { useState, useEffect, useRef } from "react"
 import { Card } from "@/components/ui/card"
 import { MapPin } from "lucide-react"
 
-export function SingleStationMap({ station }) {
-  const mapRef = useRef(null)
+// Componente interno que maneja el mapa
+function MapComponent({ station, containerId }) {
   const mapInstanceRef = useRef(null)
-  const isInitializingRef = useRef(false)
+  const mountedRef = useRef(false)
 
   useEffect(() => {
-    if (typeof window === "undefined" || !station?.latitude || !station?.longitude) return
-
-    // Prevenir múltiples inicializaciones simultáneas
-    if (isInitializingRef.current) {
-      console.log("[SingleStationMap] Already initializing, skipping...")
-      return
-    }
+    let isMounted = true
 
     const initMap = async () => {
       try {
-        isInitializingRef.current = true
+        if (!station?.latitude || !station?.longitude || !isMounted) return
+
+        console.log("[MapComponent] Starting initialization for:", station.id)
+        
+        // Dynamic import para asegurar que Leaflet se carga correctamente
         const L = (await import("leaflet")).default
 
-        // Add Leaflet CSS if not already added
+        // Add CSS
         if (!document.getElementById("leaflet-css")) {
           const link = document.createElement("link")
           link.id = "leaflet-css"
@@ -32,54 +30,50 @@ export function SingleStationMap({ station }) {
           document.head.appendChild(link)
         }
 
-        if (!mapRef.current) {
-          console.error("[SingleStationMap] Map container ref is null")
+        // Buscar el contenedor por ID
+        const container = document.getElementById(containerId)
+        if (!container || !isMounted) {
+          console.warn("[MapComponent] Container not found:", containerId)
           return
         }
 
-        // Verificar si ya tenemos una instancia de mapa guardada y limpiarla
-        if (mapInstanceRef.current) {
-          console.log("[SingleStationMap] Removing previous map instance...")
-          try {
-            mapInstanceRef.current.remove()
-          } catch (e) {
-            console.error("[SingleStationMap] Error removing previous map:", e)
-          }
-          mapInstanceRef.current = null
+        // Verificar que el contenedor esté vacío
+        if (container.children.length > 0) {
+          console.log("[MapComponent] Clearing container")
+          container.innerHTML = ""
         }
 
-        // Limpiar completamente el contenedor HTML para evitar conflictos
-        const mapContainer = document.getElementById(`map-${station.id}`)
-        if (mapContainer) {
-          mapContainer.innerHTML = ""
-        }
-        
-        if (mapRef.current) {
-          mapRef.current.innerHTML = ""
-        }
+        // Esperar un frame para que el DOM se actualice
+        await new Promise(resolve => requestAnimationFrame(() => {
+          requestAnimationFrame(resolve)
+        }))
 
-        // Pequeña pausa para asegurar que el DOM se actualice
-        await new Promise(resolve => setTimeout(resolve, 50))
+        if (!isMounted) return
 
-        console.log("[SingleStationMap] Initializing map for station:", station.id)
-        const map = L.map(mapRef.current, {
+        console.log("[MapComponent] Creating Leaflet map")
+        const map = L.map(container, {
           center: [station.latitude, station.longitude],
           zoom: 15,
           zoomControl: true,
         })
+
+        if (!isMounted) {
+          map.remove()
+          return
+        }
 
         L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
           attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
           maxZoom: 19,
         }).addTo(map)
 
-        // Create custom icon
+        // Custom icon
         const customIcon = L.divIcon({
           className: "custom-marker",
           html: `
             <div class="flex flex-col items-center">
               <div class="relative flex h-12 w-12 items-center justify-center rounded-full bg-primary shadow-lg ring-4 ring-primary/20">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
                   <path d="M5 16v2"/>
                   <path d="M19 16v2"/>
                   <path d="M3 12h18"/>
@@ -97,10 +91,8 @@ export function SingleStationMap({ station }) {
 
         // Add marker
         const marker = L.marker([station.latitude, station.longitude], { icon: customIcon }).addTo(map)
-
-        // Popup with information
-        marker
-          .bindPopup(`
+        
+        marker.bindPopup(`
           <div class="p-2">
             <h3 class="font-semibold text-base mb-2">${station.name}</h3>
             <div class="space-y-1 text-sm">
@@ -109,42 +101,62 @@ export function SingleStationMap({ station }) {
               <p class="text-xs text-gray-500 mt-2">${station.mac}</p>
             </div>
           </div>
-        `)
-          .openPopup()
+        `).openPopup()
 
         mapInstanceRef.current = map
+        mountedRef.current = true
+        
+        console.log("[MapComponent] Map initialized successfully")
 
+        // Invalidate size
         setTimeout(() => {
-          try {
-            if (mapInstanceRef.current) {
+          if (isMounted && mapInstanceRef.current) {
+            try {
               mapInstanceRef.current.invalidateSize()
+            } catch (e) {
+              console.warn("[MapComponent] Error invalidating size:", e)
             }
-          } catch (e) {
-            console.error("[SingleStationMap] Error invalidating size:", e)
           }
         }, 100)
+
       } catch (error) {
-        console.error("[SingleStationMap] Error initializing single station map:", error)
-      } finally {
-        isInitializingRef.current = false
+        console.error("[MapComponent] Error initializing map:", error)
       }
     }
 
-    initMap()
+    // Delay para asegurar que el DOM esté listo
+    const timeoutId = setTimeout(initMap, 100)
 
     return () => {
-      console.log("[SingleStationMap] Cleanup called for station:", station?.id)
-      isInitializingRef.current = false
-      if (mapInstanceRef.current) {
+      isMounted = false
+      clearTimeout(timeoutId)
+      
+      if (mapInstanceRef.current && mountedRef.current) {
         try {
+          console.log("[MapComponent] Cleaning up map")
           mapInstanceRef.current.remove()
-        } catch (e) {
-          console.error("[SingleStationMap] Error during cleanup:", e)
+        } catch (error) {
+          console.warn("[MapComponent] Cleanup error:", error)
         }
         mapInstanceRef.current = null
+        mountedRef.current = false
       }
     }
-  }, []) // Empty dependency array since we're using key for remounting
+  }, [station.id, containerId])
+
+  return null // Este componente no renderiza nada, solo maneja el mapa
+}
+
+export function SingleStationMapV4({ station }) {
+  const [containerId] = useState(() => 
+    `map-container-${Date.now()}-${Math.random().toString(36).substring(2, 15)}`
+  )
+  
+  const [isClient, setIsClient] = useState(false)
+
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   if (!station?.latitude || !station?.longitude) {
     return (
@@ -165,7 +177,14 @@ export function SingleStationMap({ station }) {
           Coordenadas: {station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}
         </p>
       </div>
-      <div ref={mapRef} id={`map-${station.id}`} className="h-[400px] w-full" />
+      <div id={containerId} className="h-[400px] w-full" />
+      {isClient && (
+        <MapComponent 
+          key={`${station.id}-${containerId}`} 
+          station={station} 
+          containerId={containerId} 
+        />
+      )}
     </Card>
   )
 }
