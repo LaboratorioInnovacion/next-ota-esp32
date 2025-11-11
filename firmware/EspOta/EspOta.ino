@@ -12,12 +12,12 @@ const char* passwords[] = {"auditorio.nodo", "12345678", "12345678"};
 Esp32OTA esp(
   "ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud", 1883,
   "Augustodelcampo97", "Augustodelcampo97",
-  "ESP32_Meteo", "v1.0.1"
+  "Esp32_2", "v1.0.1"
 );
 
 // Variables para controlar el envío de datos
 unsigned long lastHttpSent = 0;
-const unsigned long HTTP_INTERVAL = 1 * 60 * 1000; // 1 minuto en milisegundos (solo HTTP)
+const unsigned long HTTP_INTERVAL = 40 * 60 * 1000; // 40 minutos en milisegundos (solo HTTP)
 
 void setup() {
   Serial.begin(115200);
@@ -27,7 +27,7 @@ void setup() {
   esp.setWiFiNetworks(ssids, passwords, 3);
   esp.begin();
     // 👉 Establecer ubicación geográfica
-  esp.setLocation(-28.4696, -65.7852); // Catamarca, Argentina
+  esp.setLocation(-28.4762, -65.7863); // Catamarca, Argentina
   lastHttpSent = millis(); // Inicializar el timestamp
   
   Serial.println("✅ Setup completado - HTTP cada minuto, MQTT solo para OTA");

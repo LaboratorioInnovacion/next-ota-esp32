@@ -1,19 +1,23 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
 // Endpoint para recibir datos de los ESP32
 export async function POST(request) {
   try {
-    const data = await request.json()
-    const { mac, name, temperature, humidity, lat, lon } = data
+    const data = await request.json();
+    // const { mac, name, temperature, humidity, lat, lon } = data
+    const { mac, name, temperature, humidity } = data;
 
     // Validar datos requeridos
     if (!mac || temperature === undefined || humidity === undefined) {
-      return NextResponse.json({ error: "Faltan datos requeridos (mac, temperature, humidity)" }, { status: 400 })
+      return NextResponse.json(
+        { error: "Faltan datos requeridos (mac, temperature, humidity)" },
+        { status: 400 }
+      );
     }
 
     // Buscar o crear estación
-    let station = await prisma.station.findUnique({ where: { mac } })
+    let station = await prisma.station.findUnique({ where: { mac } });
 
     if (!station) {
       // Crear nueva estación
@@ -22,10 +26,10 @@ export async function POST(request) {
           mac,
           name: name || `ESP32_${mac.slice(-4)}`,
           status: "online",
-          latitude: lat || null,
-          longitude: lon || null,
+          // latitude: lat || null,
+          // longitude: lon || null,
         },
-      })
+      });
     } else {
       // Actualizar estación existente
       station = await prisma.station.update({
@@ -33,10 +37,10 @@ export async function POST(request) {
         data: {
           status: "online",
           updatedAt: new Date(),
-          ...(lat !== undefined && { latitude: lat }),
-          ...(lon !== undefined && { longitude: lon }),
+          // ...(lat !== undefined && { latitude: lat }),
+          // ...(lon !== undefined && { longitude: lon }),
         },
-      })
+      });
     }
 
     // Crear nueva lectura
@@ -46,7 +50,7 @@ export async function POST(request) {
         temperature,
         humidity,
       },
-    })
+    });
 
     return NextResponse.json(
       {
@@ -58,10 +62,13 @@ export async function POST(request) {
           name: station.name,
         },
       },
-      { status: 200 },
-    )
+      { status: 200 }
+    );
   } catch (error) {
-    console.error("[v0] Error procesando datos ESP32:", error)
-    return NextResponse.json({ error: "Error procesando datos" }, { status: 500 })
+    console.error("[v0] Error procesando datos ESP32:", error);
+    return NextResponse.json(
+      { error: "Error procesando datos" },
+      { status: 500 }
+    );
   }
 }
