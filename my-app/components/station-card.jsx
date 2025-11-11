@@ -48,7 +48,9 @@ export function StationCard({ station }) {
                 <span className="text-xs font-medium">Temperatura</span>
               </div>
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold text-foreground">{station.temperature.toFixed(1)}</span>
+                <span className="text-2xl font-bold text-foreground">
+                  {station.temperature != null ? station.temperature.toFixed(1) : "--"}
+                </span>
                 <span className="text-sm text-muted-foreground">°C</span>
               </div>
             </div>
@@ -59,7 +61,9 @@ export function StationCard({ station }) {
                 <span className="text-xs font-medium">Humedad</span>
               </div>
               <div className="flex items-baseline gap-1">
-                <span className="text-2xl font-bold text-foreground">{station.humidity.toFixed(1)}</span>
+                <span className="text-2xl font-bold text-foreground">
+                  {station.humidity != null ? station.humidity.toFixed(1) : "--"}
+                </span>
                 <span className="text-sm text-muted-foreground">%</span>
               </div>
             </div>

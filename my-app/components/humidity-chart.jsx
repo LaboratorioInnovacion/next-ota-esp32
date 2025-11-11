@@ -35,7 +35,7 @@ export function HumidityChart({ data }) {
               borderRadius: "8px",
               color: "oklch(0.98 0 0)",
             }}
-            formatter={(value) => [`${value.toFixed(1)}%`, "Humedad"]}
+            formatter={(value) => [`${value != null ? value.toFixed(1) : "--"}%`, "Humedad"]}
           />
           <Line
             type="monotone"

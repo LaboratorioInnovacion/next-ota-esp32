@@ -46,7 +46,7 @@ export function UnifiedChart({ data, title, period = "week" }) {
                 style={{ backgroundColor: entry.color }}
               />
               <span>
-                {entry.name}: {entry.value?.toFixed(1)}{entry.dataKey === 'temperature' ? '°C' : '%'}
+                {entry.name}: {entry.value != null ? entry.value.toFixed(1) : "--"}{entry.dataKey === 'temperature' ? '°C' : '%'}
               </span>
             </div>
           ))}

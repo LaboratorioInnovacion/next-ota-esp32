@@ -35,7 +35,7 @@ export function TemperatureChart({ data }) {
               borderRadius: "8px",
               color: "oklch(0.98 0 0)",
             }}
-            formatter={(value) => [`${value.toFixed(1)}°C`, "Temperatura"]}
+            formatter={(value) => [`${value != null ? value.toFixed(1) : "--"}°C`, "Temperatura"]}
           />
           <Line
             type="monotone"

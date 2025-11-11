@@ -104,8 +104,8 @@ export function SingleStationMap({ station }) {
           <div class="p-2">
             <h3 class="font-semibold text-base mb-2">${station.name}</h3>
             <div class="space-y-1 text-sm">
-              <p><strong>Temperatura:</strong> ${station.temperature?.toFixed(1)}°C</p>
-              <p><strong>Humedad:</strong> ${station.humidity?.toFixed(1)}%</p>
+              <p><strong>Temperatura:</strong> ${station.temperature != null ? station.temperature.toFixed(1) : "--"}°C</p>
+              <p><strong>Humedad:</strong> ${station.humidity != null ? station.humidity.toFixed(1) : "--"}%</p>
               <p class="text-xs text-gray-500 mt-2">${station.mac}</p>
             </div>
           </div>
@@ -162,7 +162,9 @@ export function SingleStationMap({ station }) {
       <div className="border-b border-border bg-secondary/50 px-4 py-3">
         <h3 className="font-semibold text-card-foreground">Ubicación de la Estación</h3>
         <p className="text-xs text-muted-foreground mt-1">
-          Coordenadas: {station.latitude.toFixed(4)}, {station.longitude.toFixed(4)}
+          Coordenadas: {station.latitude != null && station.longitude != null 
+            ? `${station.latitude.toFixed(4)}, ${station.longitude.toFixed(4)}`
+            : "No disponible"}
         </p>
       </div>
       <div ref={mapRef} id={`map-${station.id}`} className="h-[400px] w-full" />
