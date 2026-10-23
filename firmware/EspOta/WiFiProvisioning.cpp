@@ -1,6 +1,10 @@
 #include "WiFiProvisioning.h"
 #include "SetupConfig.h"
 #include <esp_system.h>
+#include <lwip/sockets.h>
+#include <errno.h>
+#include "PortalAssets.h"
+#include "PortalIdentity.h"
 
 namespace {
 String randomHex() {
@@ -34,7 +38,18 @@ void WiFiProvisioning::begin() {
   WiFi.setAutoReconnect(false);
   storageReady_ = preferences_.begin("station-wifi", false);
   if (storageReady_) saved_.load(*this);
+  metadataReady_ = metadata_.begin("station-meta", false);
+  location_.load(*this);
   policy_.begin(millis(), saved_.count + compiledCount_, *this);
+}
+
+size_t WiFiProvisioning::readLocation(provisioning::LocationBlob& value) {
+  if (!metadataReady_ || metadata_.getBytesLength("location") != sizeof(value)) return 0;
+  return metadata_.getBytes("location", &value, sizeof(value));
+}
+
+size_t WiFiProvisioning::writeLocation(const provisioning::LocationBlob& value) {
+  return metadataReady_ ? metadata_.putBytes("location", &value, sizeof(value)) : 0;
 }
 
 size_t WiFiProvisioning::read(size_t slot, provisioning::Credential& value) {
@@ -65,7 +80,9 @@ void WiFiProvisioning::connect(size_t index, bool candidate) {
 bool WiFiProvisioning::saveCandidate() {
   const bool saved = saved_.commit(*this, candidate_);
   policy_.setCount(saved_.count + compiledCount_);
-  return saved;
+  // Location is explicit and only committed after fresh WiFi association and
+  // confirmed network storage. Failure leaves the active location unchanged.
+  return saved && location_.commit(*this, pendingLocation_);
 }
 
 bool WiFiProvisioning::setupPassword() {
@@ -93,9 +110,11 @@ bool WiFiProvisioning::startPortal() {
     return false;
   }
   token_ = randomHex();
-  String suffix = WiFi.macAddress();
-  suffix.replace(":", "");
-  apName_ = "Station-Setup-" + suffix.substring(6);
+  uint8_t mac[6];
+  WiFi.macAddress(mac);
+  char name[20];
+  provisioning::setupName(name, mac);
+  apName_ = name;
   if (!WiFi.mode(WIFI_AP_STA) ||
       !WiFi.softAPConfig(IPAddress(192, 168, 4, 1), IPAddress(192, 168, 4, 1), IPAddress(255, 255, 255, 0)) ||
       !WiFi.softAP(apName_.c_str(), apPassword_.c_str(), 1, false, 1)) {
@@ -103,7 +122,15 @@ bool WiFiProvisioning::startPortal() {
     WiFi.mode(WIFI_STA);
     return false;
   }
-  server_.begin();
+  if (!server_.begin()) {
+    WiFi.softAPdisconnect(false);
+    WiFi.mode(WIFI_STA);
+    token_ = "";
+    Serial.println("Setup unavailable: AP-only HTTP binding failed.");
+    return false;
+  }
+  if (!dns_.start(dnsSocket_))
+    Serial.println("Captive DNS unavailable: AP-only binding failed. Use http://192.168.4.1.");
   Serial.println("Local setup AP: " + apName_);
   // Only random-per-device fallback credentials use the physical recovery channel.
   if (!provisioning::TemporarySharedSetupPassword[0])
@@ -113,7 +140,9 @@ bool WiFiProvisioning::startPortal() {
 }
 
 void WiFiProvisioning::stopPortal() {
+  dns_.stop(dnsSocket_);
   browser_.stop();
+  response_.clear();
   memset(request_, 0, sizeof(request_));
   requestSize_ = 0;
   server_.end();
@@ -125,11 +154,13 @@ void WiFiProvisioning::stopPortal() {
 void WiFiProvisioning::result(bool connected, bool saved) {
   Serial.println(!connected ? "New network failed; existing networks preserved." :
                  saved ? "New network connected and saved; setup closed." :
-                         "Network connected; save NOT confirmed. Existing networks preserved.");
+                          "Network connected; WiFi/location save NOT fully confirmed. Review configuration.");
   candidate_ = provisioning::Credential{};
+  pendingLocation_ = provisioning::Location{};
 }
 
 void WiFiProvisioning::respond(int code, const String& body) {
+  response_.clear();
   const String response = "HTTP/1.1 " + String(code) + " Response\r\nContent-Type: text/html; charset=utf-8\r\n"
       "Cache-Control: no-store\r\nConnection: close\r\nX-Content-Type-Options: nosniff\r\n"
       "Content-Security-Policy: default-src 'none'; form-action 'self'; frame-ancestors 'none'\r\n"
@@ -140,16 +171,55 @@ void WiFiProvisioning::respond(int code, const String& body) {
   requestSize_ = 0;
 }
 
+void WiFiProvisioning::asset(const char* body, size_t length, const char* type,
+                             const char* tail, size_t tailLength) {
+  const size_t tokenLength = tail ? token_.length() : 0;
+  const int headerLength = snprintf(responseHeader_, sizeof(responseHeader_),
+      "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nCache-Control: no-store\r\n"
+      "Connection: close\r\nX-Content-Type-Options: nosniff\r\n"
+      "Content-Security-Policy: default-src 'none'; script-src 'self'; style-src 'self'; "
+      "img-src blob:; form-action 'self'; frame-ancestors 'none'; base-uri 'none'\r\n"
+      "Content-Length: %u\r\n\r\n", type, static_cast<unsigned>(length + tokenLength + tailLength));
+  if (headerLength < 0 || size_t(headerLength) >= sizeof(responseHeader_)) {
+    browser_.stop();
+    return;
+  }
+  response_.begin(responseHeader_, size_t(headerLength), body, length,
+                  tail ? token_.c_str() : nullptr, tokenLength, tail, tailLength);
+  responseSince_ = millis();
+  memset(request_, 0, sizeof(request_));
+  requestSize_ = 0;
+}
+
+void WiFiProvisioning::stream() {
+  if (provisioning::elapsed(millis(), responseSince_, 15000)) {
+    browser_.stop(); response_.clear(); return;
+  }
+  if (!response_.active()) { browser_.stop(); return; }
+  // ESP32 flash is memory mapped. One nonblocking send per loop preserves all
+  // policy/sensor/OTA scheduling even when a phone stops reading the decoder.
+  const int sent = ::send(browser_.fd(), response_.data(), response_.size(), MSG_DONTWAIT);
+  if (sent > 0) {
+    response_.advance(size_t(sent));
+    if (!response_.active()) browser_.stop();
+  }
+  else if (sent == 0 || (errno != EAGAIN && errno != EWOULDBLOCK && errno != EINTR)) {
+    browser_.stop(); response_.clear();
+  }
+}
+
 void WiFiProvisioning::serve() {
   if (!browser_ || !browser_.connected()) {
     browser_.stop();
+    response_.clear();
     browser_ = server_.available();
     requestSize_ = 0;
     memset(request_, 0, sizeof(request_));
     requestSince_ = millis();
   }
   if (!browser_) return;
-  // WiFiServer listens on both interfaces; reject STA-side sockets before parsing.
+  if (response_.active()) { stream(); return; }
+  // Defense in depth, in addition to the interface-bound HTTP listener.
   if (browser_.localIP() != WiFi.softAPIP() ||
       provisioning::elapsed(millis(), requestSince_, 2000)) {
     browser_.stop();
@@ -161,36 +231,51 @@ void WiFiProvisioning::serve() {
   }
   request_[requestSize_] = 0;
   provisioning::Credential submitted{};
-  const provisioning::Request parsed = provisioning::parse(request_, requestSize_, token_.c_str(), submitted);
+  provisioning::Location submittedLocation;
+  const provisioning::Request parsed = provisioning::parse(request_, requestSize_, token_.c_str(), submitted, &submittedLocation);
   if (parsed == provisioning::Request::Incomplete) {
     if (requestSize_ == provisioning::RequestLimit) respond(413, "Request too large.");
     return;
   }
-  if (parsed == provisioning::Request::Form) {
-    String body = "<!doctype html><meta name='viewport' content='width=device-width'><title>Station WiFi</title>"
-        "<h1>Add a WiFi network</h1><p>Use a 2.4 GHz WPA network. No Internet is needed for this form.</p>"
-        "<form method='post' action='/save'><input type='hidden' name='token' value='" + token_ + "'>"
-        "<label>SSID <input name='ssid' maxlength='32' required></label><br>"
-        "<label>Password <input name='password' type='password' minlength='8' maxlength='63' required autocomplete='new-password'></label>"
-        "<button>Add network</button></form><p>After submission, allow 15 seconds. "
-        "AP disappearance means connection succeeded, not necessarily persistence. Check serial for save confirmation. "
-        "If it remains, reconnect and retry. Existing networks are never erased.</p>";
-    respond(200, body);
+  if (parsed == provisioning::Request::Captive) {
+    // Fixed AP-local destination, no request data or token in the response.
+    response_.begin(provisioning::CaptiveRedirect, sizeof(provisioning::CaptiveRedirect) - 1,
+                    nullptr, 0, nullptr, 0, nullptr, 0);
+    responseSince_ = millis();
+    memset(request_, 0, sizeof(request_));
+    requestSize_ = 0;
+  } else if (parsed == provisioning::Request::Form) {
+    asset(portal_assets::FormStart, sizeof(portal_assets::FormStart) - 1, "text/html; charset=utf-8",
+          portal_assets::FormEnd, sizeof(portal_assets::FormEnd) - 1);
+  } else if (parsed == provisioning::Request::Style) {
+    asset(portal_assets::Style, sizeof(portal_assets::Style) - 1, "text/css; charset=utf-8");
+  } else if (parsed == provisioning::Request::Script) {
+    asset(portal_assets::Script, sizeof(portal_assets::Script) - 1, "application/javascript; charset=utf-8");
+  } else if (parsed == provisioning::Request::Parser) {
+    asset(portal_assets::Parser, sizeof(portal_assets::Parser) - 1, "application/javascript; charset=utf-8");
+  } else if (parsed == provisioning::Request::Decoder) {
+    asset(portal_assets::Decoder, sizeof(portal_assets::Decoder) - 1, "application/javascript; charset=utf-8");
   } else if (parsed == provisioning::Request::Submit) {
-    if (policy_.pending() || !storageReady_ || (!saved_.room() && !saved_.contains(submitted))) {
-      respond(409, "Busy or saved network slots full. Existing networks preserved.");
+    if (policy_.pending() || !storageReady_ || (submittedLocation.present && !metadataReady_) ||
+        (!saved_.room() && !saved_.contains(submitted))) {
+      respond(409, "Configuración ocupada o espacios guardados completos. Las redes existentes se conservan.");
       return;
     }
     candidate_ = submitted;
+    pendingLocation_ = submittedLocation;
     if (!policy_.submit(millis(), *this)) {
       candidate_ = provisioning::Credential{};
-      respond(409, "Setup window ending. No credentials changed. Retry in the next window.");
+      pendingLocation_ = provisioning::Location{};
+      respond(409, "La ventana de configuración está terminando. No se cambiaron credenciales. Reintente en la próxima ventana.");
       return;
     }
     // Only STA disconnects here; the AP response precedes the next begin().
-    respond(202, "Connection test accepted. Wait 15 seconds. Saved only on successful association; check serial for persistence result.");
+    respond(202, "<!doctype html><html lang='es'><meta charset='utf-8'><meta name='viewport' content='width=device-width, initial-scale=1'>"
+        "<title>Probando conexión</title><h1>Solicitud recibida</h1><p>Espere unos 15 segundos. La red solo se intenta guardar después de una conexión correcta. "
+        "La ubicación indicada solo se guarda después de conectar y guardar la red. El puerto serie confirma el guardado completo; la desaparición del punto de acceso no confirma la persistencia.</p>"
+        "<p>Si la configuración sigue disponible, <a href='/'>vuelva a revisar los datos</a>. Las redes anteriores se conservan.</p></html>");
   } else {
-    respond(400, "Invalid request. No credentials changed.");
+    respond(400, "Solicitud inválida. No se cambiaron credenciales. Vuelva a abrir http://192.168.4.1 y revise los datos.");
   }
 }
 
@@ -198,5 +283,5 @@ void WiFiProvisioning::loop() {
   const bool connected = WiFi.status() == WL_CONNECTED;
   const bool matches = connected && WiFi.SSID() == attempted_.ssid;
   policy_.tick(millis(), connected, matches, *this);
-  if (policy_.portal()) serve();
+  if (policy_.portal()) { dns_.loop(dnsSocket_); serve(); }
 }

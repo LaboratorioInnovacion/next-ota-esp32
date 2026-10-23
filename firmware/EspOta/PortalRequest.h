@@ -1,12 +1,15 @@
 #pragma once
 
 #include "WiFiPolicy.h"
+#include "StationLocation.h"
 #include <stdlib.h>
 #include <strings.h>
 
 namespace provisioning {
 constexpr size_t RequestLimit = 1536;
-enum class Request { Incomplete, Form, Submit, Reject };
+enum class Request { Incomplete, Form, Style, Script, Parser, Decoder, Captive, Submit, Reject };
+constexpr char CaptiveRedirect[] = "HTTP/1.1 302 Found\r\nLocation: http://192.168.4.1/\r\n"
+    "Cache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
 
 inline int hex(char c) {
   if (c >= '0' && c <= '9') return c - '0';
@@ -34,15 +37,40 @@ inline bool decode(const char* first, size_t length, char* out, size_t capacity)
 // Fixed-size HTTP parser: reject chunking, duplicate security headers,
 // oversized headers/bodies, foreign Host/Origin, and unexpected form fields.
 // No credential is ever included in a response.
-inline Request parse(const char* data, size_t length, const char* token, Credential& credential) {
+inline Request parse(const char* data, size_t length, const char* token, Credential& credential,
+                     Location* location = nullptr) {
   if (length > RequestLimit || memchr(data, 0, length)) return Request::Reject;
   const char* end = strstr(data, "\r\n\r\n");
   if (!end) return length >= 1024 ? Request::Reject : Request::Incomplete;
   const size_t headerSize = size_t(end - data) + 4;
   if (headerSize > 1024) return Request::Reject;
+  for (size_t i = 0; i < headerSize; ++i) {
+    const unsigned char c = static_cast<unsigned char>(data[i]);
+    if ((c < 32 && c != '\r' && c != '\n' && c != '\t') || c == 127 ||
+        (c == '\r' && (i + 1 == headerSize || data[i + 1] != '\n')) ||
+        (c == '\n' && (!i || data[i - 1] != '\r'))) return Request::Reject;
+  }
   const char* line = strstr(data, "\r\n");
   const size_t firstSize = size_t(line - data);
-  const bool get = firstSize == 14 && memcmp(data, "GET / HTTP/1.1", 14) == 0;
+  Request route = Request::Reject;
+  const auto matches = [&](const char* text) {
+    return firstSize == strlen(text) && memcmp(data, text, firstSize) == 0;
+  };
+  const auto probe = [&](const char* path) {
+    const size_t pathSize = strlen(path);
+    return firstSize == pathSize + 13 && memcmp(data, "GET ", 4) == 0 &&
+        memcmp(data + 4, path, pathSize) == 0 &&
+        (memcmp(data + 4 + pathSize, " HTTP/1.1", 9) == 0 ||
+         memcmp(data + 4 + pathSize, " HTTP/1.0", 9) == 0);
+  };
+  if (matches("GET / HTTP/1.1")) route = Request::Form;
+  else if (matches("GET /setup.css HTTP/1.1")) route = Request::Style;
+  else if (matches("GET /setup.js HTTP/1.1")) route = Request::Script;
+  else if (matches("GET /wifi-qr.js HTTP/1.1")) route = Request::Parser;
+  else if (matches("GET /qr-decoder.js HTTP/1.1")) route = Request::Decoder;
+  else if (probe("/generate_204") || probe("/gen_204") || probe("/hotspot-detect.html") ||
+           probe("/connecttest.txt") || probe("/ncsi.txt")) route = Request::Captive;
+  const bool get = route != Request::Reject;
   const bool post = firstSize == 19 && memcmp(data, "POST /save HTTP/1.1", 19) == 0;
   if (!get && !post) return Request::Reject;
   bool host = false, origin = false, type = false, sizeSeen = false;
@@ -52,12 +80,24 @@ inline Request parse(const char* data, size_t length, const char* token, Credent
     const char* next = strstr(line, "\r\n");
     const char* colon = static_cast<const char*>(memchr(line, ':', size_t(next - line)));
     if (!colon || colon == line) return Request::Reject;
+    for (const char* p = line; p < colon; ++p)
+      if (!((*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+            (*p >= '0' && *p <= '9') || *p == '-')) return Request::Reject;
     const char* value = colon + 1;
     while (value < next && *value == ' ') ++value;
     const size_t keySize = size_t(colon - line), valueSize = size_t(next - value);
     if (keySize == 4 && strncasecmp(line, "Host", 4) == 0) {
-      if (host || !((valueSize == 11 && memcmp(value, "192.168.4.1", 11) == 0) ||
-                    (valueSize == 14 && memcmp(value, "192.168.4.1:80", 14) == 0))) return Request::Reject;
+      const bool local = (valueSize == 11 && memcmp(value, "192.168.4.1", 11) == 0) ||
+                         (valueSize == 14 && memcmp(value, "192.168.4.1:80", 14) == 0);
+      if (host || !valueSize || valueSize > 253) return Request::Reject;
+      for (const char* p = value; p < next; ++p)
+        if (!( (*p >= 'a' && *p <= 'z') || (*p >= 'A' && *p <= 'Z') ||
+               (*p >= '0' && *p <= '9') || *p == '.' || *p == '-' || *p == ':')) return Request::Reject;
+      // Foreign hosts can receive only a fixed redirect, never assets or tokens.
+      if (!local) {
+        if (!get || (route != Request::Captive && route != Request::Form)) return Request::Reject;
+        route = Request::Captive;
+      }
       host = true;
     } else if (keySize == 6 && strncasecmp(line, "Origin", 6) == 0) {
       if (origin || !((valueSize == 18 && memcmp(value, "http://192.168.4.1", 18) == 0) ||
@@ -83,8 +123,10 @@ inline Request parse(const char* data, size_t length, const char* token, Credent
   if (!host || (get && bodySize) || (post && (!sizeSeen || !type))) return Request::Reject;
   if (length < headerSize + bodySize) return Request::Incomplete;
   if (length != headerSize + bodySize) return Request::Reject;
-  if (get) return Request::Form;
+  if (get) return route;
   char ssid[33] = {}, password[64] = {}, receivedToken[33] = {};
+  char latitude[25] = {}, longitude[25] = {};
+  bool latitudeSeen = false, longitudeSeen = false;
   bool ssidSeen = false, passwordSeen = false, tokenSeen = false;
   const char* field = data + headerSize;
   const char* finish = field + bodySize;
@@ -101,11 +143,18 @@ inline Request parse(const char* data, size_t length, const char* token, Credent
       target = password; capacity = sizeof(password); passwordSeen = true;
     } else if (equal - field == 5 && memcmp(field, "token", 5) == 0 && !tokenSeen) {
       target = receivedToken; capacity = sizeof(receivedToken); tokenSeen = true;
+    } else if (equal - field == 8 && memcmp(field, "latitude", 8) == 0 && !latitudeSeen) {
+      target = latitude; capacity = sizeof(latitude); latitudeSeen = true;
+    } else if (equal - field == 9 && memcmp(field, "longitude", 9) == 0 && !longitudeSeen) {
+      target = longitude; capacity = sizeof(longitude); longitudeSeen = true;
     } else return Request::Reject;
     if (!decode(equal + 1, size_t(amp - equal - 1), target, capacity)) return Request::Reject;
     field = amp + 1;
   }
   if (!ssidSeen || !passwordSeen || !tokenSeen || strcmp(token, receivedToken)) return Request::Reject;
+  Location parsedLocation;
+  if (!parseLocation(latitude, longitude, parsedLocation)) return Request::Reject;
+  if (location) *location = parsedLocation;
   return assign(credential, ssid, strlen(ssid), password, strlen(password)) ? Request::Submit : Request::Reject;
 }
 } // namespace provisioning

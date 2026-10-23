@@ -1,6 +1,8 @@
 #include "Esp32OTA.h"
 #include "DiagnosticsConfig.h"
 #include "DiagnosticsPolicy.h"
+#include "SetupConfig.h"
+#include "WiFiPolicy.h"
 #include <time.h>
 #include <esp_system.h>
 #include <esp_sntp.h>
@@ -94,6 +96,8 @@ void Esp32OTA::setWiFiNetworks(const char* ssids[], const char* passwords[], int
 void Esp32OTA::begin() {
   Serial.begin(115200);
   provisioning.begin();
+  if (provisioning.location().present)
+    setLocation(provisioning.location().latitude, provisioning.location().longitude);
   deviceMac = WiFi.macAddress();
   Serial.println("MAC: " + deviceMac);
 
@@ -201,6 +205,10 @@ bool Esp32OTA::sendWeatherData(float temperature, float humidity, const char* en
   http.setTimeout(5000);
   http.begin(endpointUrl);
   http.addHeader("Content-Type", "application/json");
+  // Fixed setup credential only; never send the persisted random AP password.
+  const char* token = provisioning::selectSetupPassword(
+      provisioning::TemporarySharedSetupPassword, nullptr);
+  if (token) http.addHeader("Authorization", String("Bearer ") + token);
 
   // String payload = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName +
   //                  "\",\"version\":\"" + _firmwareVersion +
@@ -233,6 +241,8 @@ void Esp32OTA::sendHeartbeat() {
 
 void Esp32OTA::loop() {
   provisioning.loop();
+  if (provisioning.location().present)
+    setLocation(provisioning.location().latitude, provisioning.location().longitude);
   // Synchronous upstream work is suspended while setup is active.
   if (!networkReady()) {
     wifiClient.stop();

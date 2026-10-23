@@ -8,8 +8,8 @@
 #define DHTTYPE DHT11   // Tipo de sensor DHT (DHT11, DHT22, DHT21)
 DHT dht(DHTPIN, DHTTYPE);
 
-const char* ssids[] = {"Auditorio Nodo", "PB02", "PB202"};
-const char* passwords[] = {"auditorio.nodo", "12345678", "12345678"};
+const char* ssids[] = {""};
+const char* passwords[] = {""};
 
 Esp32OTA esp(
   "ad11f935a9c74146a4d2e647921bf024.s1.eu.hivemq.cloud", 1883,
@@ -30,10 +30,14 @@ void setup() {
   Serial.println("🚀 Iniciando ESP32 Meteo Station...");
   
   dht.begin();
-  esp.setWiFiNetworks(ssids, passwords, 3);
-  esp.begin();
+  constexpr size_t networkCount = sizeof(ssids) / sizeof(ssids[0]);
+  static_assert(networkCount == sizeof(passwords) / sizeof(passwords[0]),
+                "WiFi credential arrays must have equal lengths");
+  esp.setWiFiNetworks(ssids, passwords, networkCount);
     // 👉 Establecer ubicación geográfica
   esp.setLocation(-28.4762, -65.7863); // Catamarca, Argentina
+  // Load persisted metadata after the sketch's fallback location is configured.
+  esp.begin();
   weatherDelivery.begin(millis());
   
   lastSensorRead = millis() - 10000UL;
