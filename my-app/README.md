@@ -1,5 +1,29 @@
 This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
 
+## Measurement ingestion contract
+
+`POST /api/esp32` and `POST /api/weather` accept JSON objects up to 2048
+streamed bytes. Authorization remains optional and ignored for compatibility;
+this change does not secure those public measurement endpoints.
+
+| Field | Accepted values |
+| --- | --- |
+| `mac` | Six colon-separated hexadecimal bytes; casing is preserved, not normalized |
+| `temperature` | Finite JSON number, -80 through 100 °C (broad environmental range, including DHT22) |
+| `humidity` | Finite JSON number, 0 through 100 percent |
+| `lat`, `lon` | Optional pair of finite numbers: [-90, 90] and [-180, 180]; zero is valid |
+| `name` | Optional string on ESP32; still required and nonempty on weather |
+
+Omit **both** coordinates to retain a saved location (or leave a new station's
+location null). Partial pairs, nulls, and numeric strings are rejected; no
+fallback location or coordinate aliases are introduced. Coordinates and readings
+persist in the same transaction. Names remain creation-only, and receipt-time
+timestamps and diagnostics fields retain their existing semantics.
+
+Invalid measurements or malformed JSON return 400; internal failures return a
+generic 500. Successful response schemas are unchanged. Offline regression tests:
+`node --test tests/*.test.mjs` from `my-app`; no database is required.
+
 ## Getting Started
 
 First, run the development server:

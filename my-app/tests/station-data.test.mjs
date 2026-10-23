@@ -64,7 +64,7 @@ test("ingestion atomically uses the same receipt instant for metadata and readin
   }
   let transactions = 0
   const prisma = { $transaction: async (callback) => { transactions++; return callback(tx) } }
-  const result = await ingestReading(prisma, { mac: "test", temperature: 0, humidity: 0 }, receivedAt)
+  const result = await ingestReading(prisma, { mac: "AA:BB:CC:DD:EE:FF", temperature: 0, humidity: 0 }, receivedAt)
   assert.equal(transactions, 1)
   assert.equal(calls[0].create.createdAt, receivedAt)
   assert.equal(calls[0].update.updatedAt, receivedAt)
@@ -83,6 +83,6 @@ test("failed reading propagates through the transaction boundary", async () => {
     committed = true
     return result
   } }
-  await assert.rejects(ingestReading(prisma, { mac: "test" }), /Invalid reading/)
+  await assert.rejects(ingestReading(prisma, { mac: "AA:BB:CC:DD:EE:FF", temperature: 0, humidity: 0 }), /Invalid reading/)
   assert.equal(committed, false)
 })

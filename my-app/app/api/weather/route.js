@@ -1,30 +1,8 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { ingestReading } from "@/lib/ingest-reading.mjs"
+import { measurementPost } from "@/lib/measurement-http.mjs"
 
-export async function POST(request) {
-  try {
-    const data = await request.json()
-
-    if (!data.mac || !data.name || data.temperature === undefined || data.humidity === undefined) {
-      return NextResponse.json({ error: "Datos incompletos" }, { status: 400 })
-    }
-
-    const { reading } = await ingestReading(prisma, data)
-
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Datos recibidos y guardados correctamente",
-        data: reading,
-      },
-      { status: 200 },
-    )
-  } catch (error) {
-    console.error("[v0] Error procesando datos:", error)
-    return NextResponse.json({ error: "Error procesando datos" }, { status: 500 })
-  }
-}
+export const POST = measurementPost(prisma, "weather")
 
 export async function GET(request) {
   try {
