@@ -1,0 +1,27 @@
+name: next-ota-esp32-vps
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    mem_limit: 512m
+    cpus: 0.5
+    environment:
+      POSTGRES_DB: next_ota_vps
+      POSTGRES_USER: next_ota_vps_owner
+      POSTGRES_PASSWORD: ${VPS_DB_ADMIN_PASSWORD:?Required}
+      VPS_APP_DB_PASSWORD: ${VPS_APP_DB_PASSWORD:?Required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../vps/init-db.sh:/docker-entrypoint-initdb.d/10-app-role.sh:ro
+      - ./schema.sql:/docker-entrypoint-initdb.d/20-schema.sql:ro
+    networks: [database]
+    healthcheck:
+      test: [CMD-SHELL, 'pg_isready -U next_ota_vps_owner -d next_ota_vps']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+volumes:
+  pgdata:
+networks:
+  database:
+    internal: true

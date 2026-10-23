@@ -1,0 +1,90 @@
+name: Bootstrap isolated Estaciones database only
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full immutable commit SHA matching the dispatched main revision
+        required: true
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: next-ota-esp32-vps-private
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: next_ota_vps
+          POSTGRES_USER: next_ota_vps_owner
+          POSTGRES_PASSWORD: synthetic-admin-ci-only
+          VPS_APP_DB_PASSWORD: synthetic-app-ci-only
+        options: >-
+          --health-cmd "pg_isready -U next_ota_vps_owner -d next_ota_vps"
+          --health-interval 5s --health-timeout 3s --health-retries 20
+    steps:
+      - name: Validate immutable candidate
+        env:
+          REVISION: ${{ inputs.sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: '[[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] && test "$REVISION" = "$WORKFLOW_SHA"'
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - name: Test isolated source contract
+        run: node --test deploy/db-bootstrap/tests.mjs
+      - name: Test exact bootstrap SQL on disposable CI PostgreSQL
+        env:
+          CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -euo pipefail
+          docker exec -i "$CONTAINER" sh < deploy/vps/init-db.sh
+          docker exec -i "$CONTAINER" psql -X -U next_ota_vps_owner -d next_ota_vps -v ON_ERROR_STOP=1 < deploy/db-bootstrap/schema.sql
+          docker exec -i "$CONTAINER" psql -X -U next_ota_vps_owner -d next_ota_vps -v ON_ERROR_STOP=1 < deploy/db-bootstrap/verify.sql
+          docker exec "$CONTAINER" sh -ec 'export PGPASSWORD="$VPS_APP_DB_PASSWORD" PGOPTIONS="-c default_transaction_read_only=on"; psql -X -h 127.0.0.1 -U next_ota_vps_app -d next_ota_vps -v ON_ERROR_STOP=1 -c '\''SELECT "id" FROM "Station" LIMIT 0; SELECT "id" FROM "Reading" LIMIT 0; SELECT "id" FROM "Diagnostic" LIMIT 0;'\'''
+  bootstrap:
+    needs: validate
+    if: github.ref == 'refs/heads/main'
+    environment: vps-private
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Validate immutable candidate
+        env:
+          REVISION: ${{ inputs.sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: '[[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] && test "$REVISION" = "$WORKFLOW_SHA"'
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ inputs.sha }}
+          persist-credentials: false
+      - name: Test DB-only contract
+        run: node --test deploy/db-bootstrap/tests.mjs
+      - name: Bootstrap through trusted dedicated SSH access
+        env:
+          REVISION: ${{ inputs.sha }}
+          VPS_HOST: ${{ secrets.ESTACIONES_VPS_HOST }}
+          VPS_USER: ${{ secrets.ESTACIONES_VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.ESTACIONES_VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.ESTACIONES_VPS_KNOWN_HOSTS }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          for name in VPS_HOST VPS_USER VPS_SSH_KEY VPS_KNOWN_HOSTS; do
+            test -n "${!name}"
+          done
+          key="$RUNNER_TEMP/estaciones-key"
+          hosts="$RUNNER_TEMP/estaciones-hosts"
+          trap 'rm -f "$key" "$hosts"' EXIT
+          printf '%s\n' "$VPS_SSH_KEY" > "$key"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$hosts"
+          options=(-i "$key" -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$hosts")
+          remote="/opt/next-ota-esp32-vps/releases/$REVISION"
+          tar -czf - deploy/db-bootstrap deploy/vps/init-db.sh deploy/vps/prepare-env.py |
+            ssh "${options[@]}" "$VPS_USER@$VPS_HOST" "set -eu; umask 077; mkdir -p /opt/next-ota-esp32-vps/releases; test ! -e '$remote'; mkdir '$remote'; tar -xzf - -C '$remote'; cd '$remote/deploy/db-bootstrap'; sh bootstrap.sh '$REVISION'"
