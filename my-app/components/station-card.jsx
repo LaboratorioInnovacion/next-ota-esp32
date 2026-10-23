@@ -2,6 +2,7 @@ import Link from "next/link"
 import { Card } from "@/components/ui/card"
 import { Thermometer, Droplets, Radio, Clock } from "lucide-react"
 import { ReadingFreshness } from "@/components/reading-freshness"
+import { StationDiagnostics } from "@/components/station-diagnostics"
 
 export function StationCard({ station }) {
   const getStatusColor = (status) => {
@@ -26,13 +27,14 @@ export function StationCard({ station }) {
             </div>
             <div className="flex items-center gap-2">
               <div className={`h-2 w-2 rounded-full ${getStatusColor(station.status)}`} />
-              <span className="text-xs text-muted-foreground capitalize">{station.status}</span>
+              <span className="text-xs text-muted-foreground">{station.status === "online" ? "Conectado" : station.status === "offline" ? "Señal atrasada" : "Desconocido"}</span>
             </div>
           </div>
           <p className="mt-1 font-mono text-xs text-muted-foreground">{station.mac}</p>
         </div>
 
         <div className="p-4">
+          <StationDiagnostics station={station} />
           <div className="grid grid-cols-2 gap-4">
             <div className="flex flex-col gap-2">
               <div className="flex items-center gap-2 text-muted-foreground">

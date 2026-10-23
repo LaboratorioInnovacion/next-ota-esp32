@@ -1,0 +1,115 @@
+name: Prepare or deploy isolated private VPS
+
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Optional full SHA; must match the selected workflow revision
+        required: false
+        type: string
+      deploy_private:
+        description: Deploy to loopback only (requires protected vps-private environment)
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: next-ota-esp32-vps-private
+  cancel-in-progress: false
+
+jobs:
+  image:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Validate immutable revision
+        env:
+          REVISION: ${{ inputs.sha || github.sha }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: '[[ "$REVISION" =~ ^[0-9a-f]{40}$ ]] && test "$REVISION" = "$WORKFLOW_SHA"'
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.sha || github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - name: Check isolation contract
+        run: node --test deploy/vps/tests.mjs
+      - name: Check Prisma source against existing bootstrap SQL offline
+        working-directory: my-app
+        env:
+          DATABASE_URL: postgresql://build:build@127.0.0.1:1/build
+        run: |
+          npm ci --ignore-scripts
+          node --test ../deploy/vps/schema.test.mjs
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@v6
+        with:
+          context: ./my-app
+          file: ./my-app/Dockerfile.vps
+          push: true
+          tags: ghcr.io/laboratorioinnovacion/next-ota-esp32:${{ inputs.sha || github.sha }}
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vps-bundle
+          path: |
+            deploy/vps/compose.yml
+            deploy/vps/deploy-private.sh
+            deploy/vps/prepare-env.py
+
+  deploy:
+    if: ${{ inputs.deploy_private && github.ref == 'refs/heads/main' }}
+    needs: image
+    runs-on: ubuntu-latest
+    environment: vps-private
+    steps:
+      - name: Require explicit environment enablement
+        env:
+          ENABLED: ${{ vars.VPS_PRIVATE_DEPLOY_ENABLED }}
+        run: test "$ENABLED" = true
+      - uses: actions/download-artifact@v4
+        with:
+          name: vps-bundle
+          path: bundle
+      - name: Deploy isolated stack through verified SSH
+        env:
+          REVISION: ${{ inputs.sha || github.sha }}
+          VPS_HOST: ${{ secrets.ESTACIONES_VPS_HOST }}
+          VPS_USER: ${{ secrets.ESTACIONES_VPS_USER }}
+          VPS_SSH_KEY: ${{ secrets.ESTACIONES_VPS_SSH_KEY }}
+          VPS_KNOWN_HOSTS: ${{ secrets.ESTACIONES_VPS_KNOWN_HOSTS }}
+          REGISTRY_USER: ${{ github.actor }}
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          [[ "$REVISION" =~ ^[0-9a-f]{40}$ ]]
+          for name in VPS_HOST VPS_USER VPS_SSH_KEY VPS_KNOWN_HOSTS; do
+            test -n "${!name}" || { echo "Missing required secret: $name"; exit 1; }
+          done
+          key="$RUNNER_TEMP/vps-key"
+          hosts="$RUNNER_TEMP/vps-known-hosts"
+          trap 'rm -f "$key" "$hosts"; rm -rf bundle/.docker' EXIT
+          printf '%s\n' "$VPS_SSH_KEY" > "$key"
+          printf '%s\n' "$VPS_KNOWN_HOSTS" > "$hosts"
+          mkdir -m 700 bundle/.docker
+          python3 - <<'PY'
+          import base64, json, os
+          auth = base64.b64encode((os.environ['REGISTRY_USER'] + ':' + os.environ['REGISTRY_TOKEN']).encode()).decode()
+          with open('bundle/.docker/config.json', 'w') as f:
+              json.dump({'auths': {'ghcr.io': {'auth': auth}}}, f)
+          PY
+          options=(-i "$key" -o IdentitiesOnly=yes -o IdentityAgent=none -o BatchMode=yes -o ConnectTimeout=10 -o StrictHostKeyChecking=yes -o "UserKnownHostsFile=$hosts")
+          remote="/opt/next-ota-esp32-vps/releases/$REVISION/app"
+          ssh "${options[@]}" -p 22 "$VPS_USER@$VPS_HOST" "umask 077; mkdir -p '$remote'"
+          tar -C bundle -czf - . | ssh "${options[@]}" -p 22 "$VPS_USER@$VPS_HOST" "tar -xzf - -C '$remote'"
+          ssh "${options[@]}" -p 22 "$VPS_USER@$VPS_HOST" "cd '$remote' && sh deploy-private.sh '$REVISION'"

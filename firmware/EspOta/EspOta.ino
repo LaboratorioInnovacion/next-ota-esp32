@@ -1,5 +1,7 @@
 #include "Esp32OTA.h"
 #include "DHT.h"
+#include "WeatherDelivery.h"
+#include "DiagnosticsPolicy.h"
 
 // Configuración del sensor DHT
 #define DHTPIN 15        // Pin donde está conectado el sensor DHT (cambia según tu conexión)
@@ -16,8 +18,12 @@ Esp32OTA esp(
 );
 
 // Variables para controlar el envío de datos
-unsigned long lastHttpSent = 0;
-const unsigned long HTTP_INTERVAL = 40 * 60 * 1000; // 40 minutos en milisegundos (solo HTTP)
+weather::Delivery weatherDelivery;
+diagnostics::State diagnosticState;
+diagnostics::Delivery diagnosticDelivery;
+unsigned long lastSensorRead = 0;
+float temperature = NAN;
+float humidity = NAN;
 
 void setup() {
   Serial.begin(115200);
@@ -28,35 +34,37 @@ void setup() {
   esp.begin();
     // 👉 Establecer ubicación geográfica
   esp.setLocation(-28.4762, -65.7863); // Catamarca, Argentina
-  lastHttpSent = millis(); // Inicializar el timestamp
+  weatherDelivery.begin(millis());
   
-  Serial.println("✅ Setup completado - HTTP cada minuto, MQTT solo para OTA");
+  lastSensorRead = millis() - 10000UL;
+  Serial.println("Setup completado: dos destinos cada 5 minutos, MQTT para OTA.");
 }
 
 void loop() {
-  // 1. Leer sensores (prioridad máxima)
-  float temp = dht.readTemperature();
-  float hum  = dht.readHumidity();
-
-  if (!isnan(temp) && !isnan(hum)) {
-    // 2. Envío por HTTP (funciona independientemente de MQTT)
-    if (millis() - lastHttpSent >= HTTP_INTERVAL) {
-      Serial.printf("📊 T: %.1f°C, H: %.1f%% - Enviando HTTP...\n", temp, hum);
-      esp.sendWeatherData(temp, hum, "https://miniestaciones.vercel.app/api/esp32");
-      lastHttpSent = millis();
-      Serial.println("✅ HTTP enviado!");
-    }
-  } else {
-    Serial.println("❌ Error sensor DHT22");
+  esp.loop();
+  const unsigned long now = millis();
+  diagnosticState.tick(now);
+  if (now - lastSensorRead >= 10000UL) {
+    lastSensorRead = now;
+    temperature = dht.readTemperature();
+    humidity = dht.readHumidity();
+    diagnosticState.sample(temperature, humidity);
+    if (!diagnosticState.valid) Serial.println("Error sensor DHT11");
   }
-
-  // 3. MQTT solo para OTA (ahora no-bloqueante)
-  static unsigned long lastMqttCheck = 0;
-  if (millis() - lastMqttCheck > 60000) { // Cada minuto
-    Serial.println("🔍 Verificando MQTT para OTA...");
-    esp.loop(); // Ahora es no-bloqueante gracias a los cambios en Esp32OTA.cpp
-    lastMqttCheck = millis();
+  diagnosticDelivery.service(diagnosticState,
+      []() -> uint32_t { return millis(); },
+      []() { return esp.diagnosticsReady(); },
+      [](const char* endpoint) {
+        return esp.sendDiagnostics(endpoint, diagnosticState.sensorStatus(),
+            diagnosticState.errorCode(), diagnosticState.uptimeMs);
+      });
+  if (diagnosticState.valid) {
+    weatherDelivery.service(weather::Sample{temperature, humidity},
+        []() -> uint32_t { return millis(); },
+        []() { return esp.networkReady(); },
+        [](const char* endpoint, const weather::Sample& sample) {
+          return esp.sendWeatherData(sample.temperature, sample.humidity, endpoint);
+        });
   }
-  
-  delay(10000); // 10 segundos entre loops
+  delay(1); // Yield without starving the local setup service.
 }

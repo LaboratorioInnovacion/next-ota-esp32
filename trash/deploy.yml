@@ -1,0 +1,62 @@
+# Retired: mutable latest images and the old server deployment are unsafe here.
+# Archive only. Do not execute or restore to active workflows.
+# Use the reviewed, manual vps-private workflow for isolated VPS deployment.
+name: CI/CD Next OTA ESP32
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login a GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build y push imagen
+        uses: docker/build-push-action@v5
+        with:
+          context: ./my-app
+          push: true
+          tags: ghcr.io/${{ github.repository }}:latest
+          cache-from: type=registry,ref=ghcr.io/${{ github.repository }}:cache
+          cache-to: type=registry,ref=ghcr.io/${{ github.repository }}:cache,mode=max
+          build-args: |
+            NEXT_PUBLIC_API_URL=${{ secrets.NEXT_PUBLIC_API_URL }}
+
+      - name: Deploy en servidor
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.DO_HOST }}
+          username: ${{ secrets.DO_USER }}
+          key: ${{ secrets.DO_SSH_PRIVATE_KEY }}
+          port: ${{ secrets.DO_PORT }}
+          script: |
+            set -e
+
+            docker login ghcr.io -u ${{ github.actor }} --password ${{ secrets.GITHUB_TOKEN }}
+            docker pull ghcr.io/${{ github.repository }}:latest
+
+            docker stop next-ota-esp32 2>/dev/null || true
+            docker rm   next-ota-esp32 2>/dev/null || true
+
+            docker run -d \
+              --name next-ota-esp32 \
+              --restart always \
+              --network red_interna \
+              -p 3030:3000 \
+              ghcr.io/${{ github.repository }}:latest
+
+            echo "✅ next-ota-esp32 levantado en puerto 3030"

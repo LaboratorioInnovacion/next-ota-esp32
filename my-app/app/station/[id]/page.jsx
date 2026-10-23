@@ -12,6 +12,7 @@ import { PeriodSelector } from "@/components/period-selector"
 import { useStations, useStationHistory } from "@/lib/use-station-data"
 import { formatArgentina } from "@/lib/station-time.mjs"
 import { ReadingFreshness } from "@/components/reading-freshness"
+import { StationDiagnostics } from "@/components/station-diagnostics"
 import { 
   ArrowLeft, 
   Thermometer, 
@@ -248,6 +249,7 @@ export default function StationDetailPage() {
       </div>
 
       <main className="container mx-auto px-3 md:px-6 py-4 md:py-8">
+        <StationDiagnostics station={station} />
         {/* Métricas principales con colores consistentes - Apiladas en mobile */}
         <div className="mb-6 md:mb-10 grid gap-4 md:gap-8 md:grid-cols-2">
           {/* Tarjeta de Temperatura */}
@@ -270,7 +272,7 @@ export default function StationDetailPage() {
                     </p>
                     <div className="flex items-baseline gap-1 md:gap-2">
                       <span className="text-3xl md:text-5xl font-black text-foreground tracking-tight">
-                        {station.temperature.toFixed(1)}
+                        {station.temperature?.toFixed(1) ?? "--"}
                       </span>
                       <span className="text-lg md:text-2xl font-bold text-muted-foreground">°C</span>
                     </div>
@@ -335,7 +337,7 @@ export default function StationDetailPage() {
                     </p>
                     <div className="flex items-baseline gap-1 md:gap-2">
                       <span className="text-3xl md:text-5xl font-black text-foreground tracking-tight">
-                        {station.humidity.toFixed(1)}
+                        {station.humidity?.toFixed(1) ?? "--"}
                       </span>
                       <span className="text-lg md:text-2xl font-bold text-muted-foreground">%</span>
                     </div>
@@ -440,13 +442,13 @@ export default function StationDetailPage() {
                         {station.status === "online" ? (
                           <>
                             <CheckCircle className="h-3 w-3 md:h-4 md:w-4 text-emerald-400" />
-                            <span className="hidden sm:inline">Activo</span>
+                            <span className="hidden sm:inline">Conectado</span>
                             <span className="sm:hidden">On</span>
                           </>
                         ) : (
                           <>
                             <XCircle className="h-3 w-3 md:h-4 md:w-4 text-red-400" />
-                            <span className="hidden sm:inline">Inactivo</span>
+                            <span className="hidden sm:inline">Señal atrasada</span>
                             <span className="sm:hidden">Off</span>
                           </>
                         )}
@@ -535,7 +537,7 @@ export default function StationDetailPage() {
                     <div className="flex items-center gap-2">
                       <div className={`h-2.5 w-2.5 md:h-3 md:w-3 rounded-full ${station.status === "online" ? "bg-primary animate-pulse" : "bg-destructive"}`} />
                       <p className={`text-sm md:text-lg font-bold ${station.status === "online" ? "text-primary" : "text-destructive"}`}>
-                        {station.status === "online" ? "En Línea" : "Desconectado"}
+                        {station.reason ?? "Estado desconocido"}
                       </p>
                     </div>
                   </div>

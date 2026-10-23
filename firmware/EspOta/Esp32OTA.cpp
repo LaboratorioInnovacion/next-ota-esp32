@@ -1,4 +1,75 @@
 #include "Esp32OTA.h"
+#include "DiagnosticsConfig.h"
+#include "DiagnosticsPolicy.h"
+#include <time.h>
+#include <esp_system.h>
+#include <esp_sntp.h>
+
+namespace {
+volatile bool diagnosticsTimeReceived = false;
+void diagnosticsTimeSync(struct timeval*) { diagnosticsTimeReceived = true; }
+
+String diagnosticJsonString(const char* value) {
+  String result;
+  for (size_t i = 0; value[i] && i < 64; ++i) {
+    const unsigned char c = value[i];
+    if (c == '"' || c == '\\') result += '\\';
+    if (c >= 32 && c < 127) result += char(c);
+  }
+  return result;
+}
+}
+
+bool Esp32OTA::diagnosticsReady() {
+  const bool configured = diagnostics::configured(ESP32_DIAGNOSTICS_TOKEN,
+      ESP32_DIAGNOSTICS_ROOT_CA, ESP32_DIAGNOSTICS_TLS_APPROVED);
+  if (!configured) {
+    static bool reported = false;
+    if (!reported) Serial.println("Diagnostics disabled: dedicated token, trusted CA and TLS approval required.");
+    reported = true;
+    return false;
+  }
+  if (!networkReady()) return false;
+  if (!diagnosticsClockStarted) {
+    diagnosticsClockStarted = true;
+    sntp_set_time_sync_notification_cb(diagnosticsTimeSync);
+    configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+    Serial.println("Diagnostics pending asynchronous clock synchronization.");
+  }
+  // No blocking NTP wait. A plausible epoch alone is not a synchronization signal.
+  diagnosticsClockSynced = diagnostics::clockReady(diagnosticsTimeReceived, time(nullptr));
+  return diagnosticsClockSynced;
+}
+
+int Esp32OTA::sendDiagnostics(const char* endpoint, const char* sensorStatus,
+                             const char* errorCode, uint64_t uptimeMs) {
+  if (!diagnosticsReady() || uptimeMs > 9007199254740991ULL) return -1;
+  if (diagnosticsBootId.isEmpty()) {
+    char boot[17];
+    snprintf(boot, sizeof(boot), "%08lx%08lx", (unsigned long)esp_random(), (unsigned long)esp_random());
+    diagnosticsBootId = boot;
+  }
+  char uptime[24];
+  snprintf(uptime, sizeof(uptime), "%llu", (unsigned long long)uptimeMs);
+  String payload = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + diagnosticJsonString(_deviceName) +
+      "\",\"version\":\"" + diagnosticJsonString(_firmwareVersion) + "\",\"bootId\":\"" + diagnosticsBootId +
+      "\",\"uptimeMs\":" + uptime + ",\"sensorStatus\":\"" + sensorStatus + "\",\"errorCode\":\"" + errorCode + "\"}";
+  // Dedicated verified transport; never share the legacy convenience client.
+  WiFiClientSecure tls;
+  tls.setCACert(ESP32_DIAGNOSTICS_ROOT_CA);
+  tls.setHandshakeTimeout(3);
+  HTTPClient http;
+  http.setConnectTimeout(3000);
+  http.setTimeout(3000);
+  http.setFollowRedirects(HTTPC_DISABLE_FOLLOW_REDIRECTS);
+  if (!http.begin(tls, endpoint)) return -1;
+  http.addHeader("Content-Type", "application/json");
+  http.addHeader("Authorization", String("Bearer ") + ESP32_DIAGNOSTICS_TOKEN);
+  const int code = http.POST(payload);
+  http.end();
+  Serial.printf("Diagnostics HTTP/transport code: %d\n", code);
+  return code;
+}
 void Esp32OTA::setLocation(float lat, float lon) {
   _latitude = lat;
   _longitude = lon;
@@ -14,59 +85,27 @@ Esp32OTA::Esp32OTA(const char* mqttHost, int mqttPort,
 {
   lastHeartbeat = 0;
   otaUpdateCallback = nullptr;
-  _ssids = nullptr;
-  _passwords = nullptr;
-  _wifiCount = 0;
 }
 
 void Esp32OTA::setWiFiNetworks(const char* ssids[], const char* passwords[], int count) {
-  _ssids = ssids;
-  _passwords = passwords;
-  _wifiCount = count;
+  provisioning.setNetworks(ssids, passwords, count);
 }
 
 void Esp32OTA::begin() {
   Serial.begin(115200);
-  delay(1000);
-  connectWiFi();
+  provisioning.begin();
   deviceMac = WiFi.macAddress();
   Serial.println("MAC: " + deviceMac);
 
   // Configurar cliente MQTT
   wifiClient.setInsecure();
+  wifiClient.setHandshakeTimeout(5);
+  mqttClient.setSocketTimeout(5);
   mqttClient.setServer(_mqttHost, _mqttPort);
   mqttClient.setCallback([this](char* topic, byte* payload, unsigned int length) {
     this->mqttCallback(topic, payload, length);
   });
-  connectMQTT();
-}
-
-void Esp32OTA::connectWiFi() {
-  if (_wifiCount == 0) {
-    Serial.println("⚠️ No hay redes WiFi configuradas.");
-    return;
-  }
-
-  Serial.println("Conectando a WiFi...");
-
-  for (int i = 0; i < _wifiCount; i++) {
-    Serial.printf("Intentando conectar a %s...\n", _ssids[i]);
-    WiFi.begin(_ssids[i], _passwords[i]);
-    int retries = 0;
-    while (WiFi.status() != WL_CONNECTED && retries < 20) {
-      delay(500);
-      Serial.print(".");
-      retries++;
-    }
-    if (WiFi.status() == WL_CONNECTED) {
-      Serial.printf("\n✅ Conectado a %s, IP: %s\n", _ssids[i], WiFi.localIP().toString().c_str());
-      return;
-    }
-    WiFi.disconnect(true);
-  }
-
-  Serial.println("\n❌ No se pudo conectar a ninguna red. Reiniciando...");
-  ESP.restart();
+  lastConnectAttempt = millis() - 30000UL;
 }
 
 void Esp32OTA::connectMQTT() {
@@ -76,6 +115,13 @@ void Esp32OTA::connectMQTT() {
   // Solo UN intento, no bucle infinito
   if (!mqttClient.connected()) {
     Serial.println("🔄 Intento de conexión MQTT...");
+    // This overload takes milliseconds in both Arduino-ESP32 2.x and 3.x.
+    // DNS resolution remains subject to the core's resolver timeout.
+    if (!wifiClient.connected() && !wifiClient.connect(_mqttHost, _mqttPort, 5000)) {
+      wifiClient.stop();
+      Serial.println("MQTT transport unavailable; retry deferred.");
+      return;
+    }
     if (mqttClient.connect(clientId.c_str(), _mqttUser, _mqttPass,
                            TOPIC_STATUS, 0, false, willMessage.c_str())) {
       Serial.println("✅ MQTT conectado para OTA.");
@@ -84,6 +130,7 @@ void Esp32OTA::connectMQTT() {
       mqttClient.publish(TOPIC_STATUS, onlineMsg.c_str(), false);
       mqttClient.subscribe(TOPIC_UPDATE);
     } else {
+      wifiClient.stop();
       Serial.printf("⚠️ Fallo MQTT (estado: %d) - Continuando solo con HTTP\n", mqttClient.state());
       // NO hacer delay ni reintentar automáticamente
     }
@@ -111,6 +158,8 @@ void Esp32OTA::mqttCallback(char* topic, byte* payload, unsigned int length) {
 void Esp32OTA::doOTA(const String &url) {
   Serial.println("[OTA] Descargando firmware desde: " + url);
   HTTPClient http;
+  http.setConnectTimeout(5000);
+  http.setTimeout(5000);
   http.begin(url);
   int httpCode = http.GET();
   if (httpCode == 200) {
@@ -141,13 +190,15 @@ void Esp32OTA::sendSensorData(float temperature, float humidity) {
   Serial.println("Sensor data enviado: " + sensorMsg);
 }
 
-void Esp32OTA::sendWeatherData(float temperature, float humidity, const char* endpointUrl) {
-  if (WiFi.status() != WL_CONNECTED) {
+bool Esp32OTA::sendWeatherData(float temperature, float humidity, const char* endpointUrl) {
+  if (!networkReady()) {
     Serial.println("No hay WiFi para enviar POST");
-    return;
+    return false;
   }
 
   HTTPClient http;
+  http.setConnectTimeout(5000);
+  http.setTimeout(5000);
   http.begin(endpointUrl);
   http.addHeader("Content-Type", "application/json");
 
@@ -163,12 +214,14 @@ String payload = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName +
                  ",\"lon\":" + String(_longitude, 6) + "}";
 
   int httpCode = http.POST(payload);
-  if (httpCode > 0) {
+  const bool success = httpCode >= 200 && httpCode < 300;
+  if (success) {
     Serial.printf("POST enviado (%d): %s\n", httpCode, payload.c_str());
   } else {
-    Serial.printf("Error POST: %s\n", http.errorToString(httpCode).c_str());
+    Serial.printf("POST failed (HTTP/transport code: %d)\n", httpCode);
   }
   http.end();
+  return success;
 }
 
 void Esp32OTA::sendHeartbeat() {
@@ -179,14 +232,18 @@ void Esp32OTA::sendHeartbeat() {
 }
 
 void Esp32OTA::loop() {
-  // Solo intentar conectar si no está conectado (sin bloquear)
-  static unsigned long lastConnectAttempt = 0;
+  provisioning.loop();
+  // Synchronous upstream work is suspended while setup is active.
+  if (!networkReady()) {
+    wifiClient.stop();
+    return;
+  }
   
   if (!mqttClient.connected()) {
     // Solo intentar reconectar cada 30 segundos
     if (millis() - lastConnectAttempt > 30000) {
-      connectMQTT();
       lastConnectAttempt = millis();
+      connectMQTT();
     }
   } else {
     // Solo procesar MQTT si está conectado
@@ -407,4 +464,3 @@ void Esp32OTA::setOTAUpdateCallback(void (*callback)(const String&)) {
 // void Esp32OTA::setOTAUpdateCallback(void (*callback)(const String&)) {
 //   otaUpdateCallback = callback;
 // }
-

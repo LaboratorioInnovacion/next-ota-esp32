@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+root=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+cache=${TMPDIR:-${HOME}/.cache/opencode/tmp/opencode}
+mkdir -p "$cache"
+binary=$(mktemp "$cache/espota-tests.XXXXXX")
+trap 'rm -f "$binary"' EXIT
+for source in policy_test.cpp weather_delivery_test.cpp diagnostics_test.cpp; do
+"${CXX:-g++}" -std=c++11 -Wall -Wextra -Werror -pedantic \
+  -fsanitize=address,undefined -fno-omit-frame-pointer \
+  "$root/$source" -o "$binary"
+"$binary"
+done

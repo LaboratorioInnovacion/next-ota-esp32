@@ -6,6 +6,7 @@
 #include <PubSubClient.h>
 #include <HTTPClient.h>
 #include <Update.h>
+#include "WiFiProvisioning.h"
 
 // Definiciones para tópicos MQTT
 #define TOPIC_STATUS    "esp32/status"
@@ -37,13 +38,16 @@ public:
   void sendSensorData(float temperature, float humidity);
 
   // Envía datos meteorológicos por POST
-  void sendWeatherData(float temperature, float humidity, const char* endpointUrl);
+  bool sendWeatherData(float temperature, float humidity, const char* endpointUrl);
+  bool networkReady() const { return provisioning.ready() && !provisioning.portalActive(); }
+  bool diagnosticsReady();
+  int sendDiagnostics(const char* endpoint, const char* sensorStatus,
+                      const char* errorCode, uint64_t uptimeMs);
 
   // Permite configurar múltiples redes WiFi
   void setWiFiNetworks(const char* ssids[], const char* passwords[], int count);
 
 private:
-  void connectWiFi();
   void connectMQTT();
   void mqttCallback(char* topic, byte* payload, unsigned int length);
   void doOTA(const String &url);
@@ -63,10 +67,11 @@ private:
   unsigned long lastHeartbeat;
   void (*otaUpdateCallback)(const String&);  // Callback opcional para notificar actualizaciones OTA
 
-  // Redes WiFi
-  const char** _ssids;
-  const char** _passwords;
-  int _wifiCount;
+  WiFiProvisioning provisioning;
+  unsigned long lastConnectAttempt = 0;
+  bool diagnosticsClockStarted = false;
+  bool diagnosticsClockSynced = false;
+  String diagnosticsBootId;
 };
 
 #endif

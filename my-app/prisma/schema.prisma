@@ -7,17 +7,39 @@ datasource db {
 }
 
 model Station {
-  id        String   @id @default(cuid())
-  mac       String   @unique
-  name      String
-  status    String   @default("online")
-  latitude  Float?
-  longitude Float?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  readings  Reading[]
+  id                 String       @id @default(cuid())
+  mac                String       @unique
+  name               String
+  status             String       @default("online")
+  latitude           Float?
+  longitude          Float?
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  readings           Reading[]
+  lastSeenAt         DateTime?
+  sensorStatus       String?
+  sensorErrorCode    String?
+  firmwareVersion    String?
+  diagnosticBootId   String?
+  diagnosticUptimeMs Float?
+  diagnostics        Diagnostic[]
 
   @@index([mac])
+}
+
+model Diagnostic {
+  id           String   @id @default(cuid())
+  stationId    String
+  station      Station  @relation(fields: [stationId], references: [id], onDelete: Cascade)
+  bootId       String
+  uptimeMs     Float
+  sensorStatus String
+  errorCode    String
+  version      String
+  receivedAt   DateTime @default(now())
+
+  @@unique([stationId, bootId, uptimeMs])
+  @@index([stationId, receivedAt])
 }
 
 model Reading {

@@ -1,0 +1,6 @@
+.env
+.env.*
+.env.vps
+.env.vps.*
+!.env.vps.example
+.docker/

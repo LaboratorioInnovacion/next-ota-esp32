@@ -1,4 +1,7 @@
-const stationFields = ["id", "mac", "name", "status", "lastUpdate", "temperature", "humidity", "latitude", "longitude"]
+import { stationHealth } from "./diagnostics.mjs"
+
+const stationFields = ["id", "mac", "name", "status", "lastUpdate", "temperature", "humidity", "latitude", "longitude",
+  "lastSeenAt", "lastValidReadingAt", "sensorStatus", "sensorErrorCode", "firmwareVersion", "reason"]
 
 export function sameStation(a, b) {
   return !!a && !!b && stationFields.every((key) => a[key] === b[key])
@@ -16,8 +19,12 @@ export function selectStationId(currentId, stations) {
 
 export function stationWithLatestReading(station) {
   const reading = station.readings[0]
+  const health = stationHealth({ ...station, lastUpdate: reading?.timestamp ?? null })
   return {
-    id: station.id, mac: station.mac, name: station.name, status: station.status,
+    id: station.id, mac: station.mac, name: station.name, ...health,
+    lastValidReadingAt: reading?.timestamp ?? null,
+    sensorErrorCode: station.sensorErrorCode ?? null,
+    firmwareVersion: station.firmwareVersion ?? null,
     lastUpdate: reading?.timestamp ?? null,
     temperature: reading?.temperature ?? null, humidity: reading?.humidity ?? null,
     latitude: station.latitude ?? null, longitude: station.longitude ?? null,

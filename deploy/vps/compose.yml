@@ -1,0 +1,28 @@
+name: next-ota-esp32-vps
+
+services:
+  app:
+    image: ${APP_IMAGE:?Full-SHA app image required}
+    restart: unless-stopped
+    mem_limit: 768m
+    cpus: 0.5
+    environment:
+      DATABASE_URL: postgresql://next_ota_vps_app:${VPS_APP_DB_PASSWORD:?Existing VPS app password required}@db:5432/next_ota_vps
+    ports: ["127.0.0.1:3030:3000"]
+    networks: [database, outbound]
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "Promise.all(['/', '/api/stations'].map(async p => { const r = await fetch('http://127.0.0.1:3000'+p, {signal: AbortSignal.timeout(4000)}); if(r.status !== 200) throw Error('unhealthy'); })).catch(() => process.exit(1))"
+      interval: 15s
+      timeout: 6s
+      retries: 8
+      start_period: 20s
+
+networks:
+  database:
+    external: true
+    name: next-ota-esp32-vps_database
+  outbound:

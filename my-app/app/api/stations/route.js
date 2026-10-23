@@ -2,6 +2,9 @@ import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
 import { stationWithLatestReading } from "@/lib/station-data.mjs"
 
+// Freshness must be evaluated at request time, never during build/prerender.
+export const dynamic = "force-dynamic"
+
 export async function GET() {
   try {
     const stations = await prisma.station.findMany({
