@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { rollingStart } from "@/lib/station-time.mjs"
 
 export async function GET(request) {
   try {
@@ -11,15 +12,7 @@ export async function GET(request) {
       return NextResponse.json({ error: "stationId requerido" }, { status: 400 })
     }
 
-    // Calcular fecha de inicio según el período
-    const now = new Date()
-    const startDate = new Date()
-
-    if (period === "week") {
-      startDate.setDate(now.getDate() - 7)
-    } else if (period === "month") {
-      startDate.setDate(now.getDate() - 30)
-    }
+    const startDate = rollingStart(period)
 
     const readings = await prisma.reading.findMany({
       where: {

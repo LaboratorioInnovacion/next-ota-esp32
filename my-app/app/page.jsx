@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo, lazy, Suspense } from "react"
+import { useState, useCallback, useMemo, lazy, Suspense } from "react"
 import { StationCard } from "@/components/station-card"
 import { OptimizedStationCard } from "@/components/optimized-station-card"
 import { StatsOverview } from "@/components/stats-overview"
@@ -13,6 +13,8 @@ import { UnifiedChart } from "@/components/unified-chart"
 const StationsMap = lazy(() => import("@/components/stations-map").then(module => ({ default: module.StationsMap })))
 const StationFilters = lazy(() => import('../components/station-filters').then(module => ({ default: module.StationFilters })))
 import { Activity, Thermometer, Droplets, Radio } from "lucide-react"
+import { useStations, useStationHistory } from "@/lib/use-station-data"
+import { selectStationId } from "@/lib/station-data.mjs"
 
 /**
  * Página Principal del Dashboard Meteorológico
@@ -20,22 +22,22 @@ import { Activity, Thermometer, Droplets, Radio } from "lucide-react"
  */
 export default function Page() {
   // Estados del componente
-  const [stations, setStations] = useState([]) // Lista completa de estaciones meteorológicas
-  const [selectedStation, setSelectedStation] = useState(null) // Estación actualmente seleccionada para ver detalles
+  const { stations, loading } = useStations()
+  const [selectedStationId, setSelectedStationId] = useState(null)
+  const selectedStation = stations.find((station) => station.id === selectStationId(selectedStationId, stations)) ?? null
   const [selectedPeriod, setSelectedPeriod] = useState("week") // Periodo de tiempo para gráficos: "week" o "month"
-  const [chartData, setChartData] = useState([]) // Datos históricos formateados para los gráficos
+  const { data: chartData, loading: chartLoading } = useStationHistory(selectedStation?.id, selectedPeriod, selectedStation?.lastUpdate)
   const [allStationsData, setAllStationsData] = useState([]) // Datos de todas las estaciones para gráficos globales
-  const [visibleStations, setVisibleStations] = useState([]) // IDs de estaciones visibles en los gráficos
-  const [loading, setLoading] = useState(true) // Estado de carga inicial de la página
-  const [chartLoading, setChartLoading] = useState(false) // Estado de carga específico para gráficos
+  const [visibleStationIds, setVisibleStations] = useState(null)
+  const visibleStations = useMemo(() => visibleStationIds ?? stations.map((station) => station.id), [visibleStationIds, stations])
 
   // Handlers optimizados con useCallback para evitar re-renders
   const handleStationClick = useCallback((station) => {
-    setSelectedStation(station)
+    setSelectedStationId(station.id)
   }, [])
 
   const handleStationSelect = useCallback((station) => {
-    setSelectedStation(station)
+    setSelectedStationId(station.id)
     // Opcional: hacer scroll al gráfico cuando se selecciona una estación
     // Esto mejora la UX en dispositivos móviles
     setTimeout(() => {
@@ -51,100 +53,17 @@ export default function Page() {
   }, [])
 
   const handleStationToggle = useCallback((stationId) => {
-    setVisibleStations(prev => 
-      prev.includes(stationId) 
-        ? prev.filter(id => id !== stationId)
-        : [...prev, stationId]
-    )
-  }, [])
+    setVisibleStations((previous) => {
+      const current = previous ?? stations.map((station) => station.id)
+      return current.includes(stationId) ? current.filter((id) => id !== stationId) : [...current, stationId]
+    })
+  }, [stations])
 
   const handleToggleAllStations = useCallback(() => {
     setVisibleStations(prev => 
-      prev.length === stations.length ? [] : stations.map(s => s.id)
+      (prev ?? stations).length === stations.length ? [] : stations.map(s => s.id)
     )
   }, [stations])
-
-  /**
-   * Effect 1: Carga y actualización automática de estaciones
-   * - Obtiene la lista de estaciones desde la API
-   * - Se ejecuta al montar el componente
-   * - Se actualiza automáticamente cada 30 segundos (optimizado)
-   * - Si hay estaciones disponibles, selecciona la primera por defecto
-   */
-  useEffect(() => {
-    const fetchStations = async () => {
-      try {
-        const response = await fetch("/api/stations", {
-          headers: { 'Cache-Control': 'public, max-age=20' } // Cache por 20 segundos
-        })
-        const result = await response.json()
-        if (result.success) {
-          setStations(result.data)
-          // Auto-seleccionar la primera estación si no hay ninguna seleccionada
-          if (result.data.length > 0 && !selectedStation) {
-            setSelectedStation(result.data[0])
-          }
-          // Inicializar estaciones visibles con todas las estaciones
-          if (result.data.length > 0 && visibleStations.length === 0) {
-            setVisibleStations(result.data.map(s => s.id))
-          }
-        }
-      } catch (error) {
-        console.error("[v0] Error cargando estaciones:", error)
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchStations()
-    const interval = setInterval(fetchStations, 30000) // Reducido de 10s a 30s
-    return () => clearInterval(interval) // Limpiar intervalo al desmontar componente
-  }, [])
-
-  /**
-   * Effect 2: Carga de lecturas históricas (optimizado con debouncing)
-   * - Obtiene los datos históricos de la estación seleccionada
-   * - Filtra por el periodo seleccionado (semana o mes)
-   * - Formatea las fechas en español para los gráficos
-   * - Se ejecuta cuando cambia la estación o el periodo con debouncing
-   */
-  useEffect(() => {
-    if (!selectedStation) return
-
-    const timeoutId = setTimeout(async () => {
-      setChartLoading(true) // Activar indicador de carga
-      try {
-        const response = await fetch(
-          `/api/readings?stationId=${selectedStation.id}&period=${selectedPeriod}`,
-          {
-            headers: { 'Cache-Control': 'public, max-age=60' } // Cache por 1 minuto
-          }
-        )
-        const result = await response.json()
-
-        if (result.success) {
-          // Formatear datos para los gráficos con fechas en español (memoizado)
-          const formatted = result.data.map((reading) => ({
-            time: new Date(reading.timestamp).toLocaleDateString("es-ES", {
-              month: "short",
-              day: "numeric",
-              hour: "2-digit",
-              minute: "2-digit",
-            }),
-            temperature: reading.temperature,
-            humidity: reading.humidity,
-          }))
-          setChartData(formatted)
-        }
-      } catch (error) {
-        console.error("[v0] Error cargando lecturas:", error)
-      } finally {
-        setChartLoading(false) // Desactivar indicador de carga
-      }
-    }, 300) // Debounce de 300ms
-
-    return () => clearTimeout(timeoutId)
-  }, [selectedStation, selectedPeriod])
 
   /**
    * Effect 3: Carga de datos históricos de TODAS las estaciones (DESHABILITADO TEMPORALMENTE)

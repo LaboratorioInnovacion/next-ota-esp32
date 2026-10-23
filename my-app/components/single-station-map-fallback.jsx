@@ -6,9 +6,13 @@ import { MapPin } from "lucide-react"
 
 export function SingleStationMapFallback({ station }) {
   const [mapHtml, setMapHtml] = useState("")
+  const { id, latitude, longitude } = station ?? {}
 
   useEffect(() => {
-    if (!station?.latitude || !station?.longitude) return
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setMapHtml("")
+      return
+    }
 
     const html = `
       <!DOCTYPE html>
@@ -26,7 +30,7 @@ export function SingleStationMapFallback({ station }) {
         <div id="map"></div>
         <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
         <script>
-          const map = L.map('map').setView([${station.latitude}, ${station.longitude}], 15);
+          const map = L.map('map').setView([${latitude}, ${longitude}], 15);
           
           L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
@@ -57,25 +61,16 @@ export function SingleStationMapFallback({ station }) {
             iconAnchor: [24, 48]
           });
           
-          const marker = L.marker([${station.latitude}, ${station.longitude}], { icon: customIcon }).addTo(map);
-          
-          marker.bindPopup(\`
-            <div style="font-family: system-ui; min-width: 200px;">
-              <h3 style="margin: 0 0 8px 0; font-weight: 600;">${station.name}</h3>
-              <p><strong>Temperatura:</strong> ${station.temperature?.toFixed(1)}°C</p>
-              <p><strong>Humedad:</strong> ${station.humidity?.toFixed(1)}%</p>
-              <p style="font-size: 12px; color: #666; margin-top: 8px;">${station.mac}</p>
-            </div>
-          \`).openPopup();
+          L.marker([${latitude}, ${longitude}], { icon: customIcon }).addTo(map);
         </script>
       </body>
       </html>
     `
 
     setMapHtml(html)
-  }, [station])
+  }, [id, latitude, longitude])
 
-  if (!station?.latitude || !station?.longitude) {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
     return (
       <Card className="flex h-[400px] items-center justify-center bg-card">
         <div className="text-center text-muted-foreground">

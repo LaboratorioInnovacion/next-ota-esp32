@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback, useMemo } from "react"
-import { useParams, useRouter } from "next/navigation"
+import { useState, useCallback, useMemo } from "react"
+import { useParams } from "next/navigation"
 import Link from "next/link"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,6 +9,9 @@ import { SingleStationMapFallback as SingleStationMapV4 } from "@/components/sin
 import { AdvancedChart } from "@/components/advanced-chart"
 import { UnifiedChart } from "@/components/unified-chart"
 import { PeriodSelector } from "@/components/period-selector"
+import { useStations, useStationHistory } from "@/lib/use-station-data"
+import { formatArgentina } from "@/lib/station-time.mjs"
+import { ReadingFreshness } from "@/components/reading-freshness"
 import { 
   ArrowLeft, 
   Thermometer, 
@@ -37,60 +40,18 @@ import {
 
 export default function StationDetailPage() {
   const params = useParams()
-  const router = useRouter()
-  const [station, setStation] = useState(null)
-  const [chartData, setChartData] = useState([])
-  const [recentReadings, setRecentReadings] = useState([])
+  const { stations, loading, refresh } = useStations()
+  const station = stations.find((item) => item.id === params.id) ?? null
   const [selectedPeriod, setSelectedPeriod] = useState("week")
-  const [loading, setLoading] = useState(true)
-  const [refreshing, setRefreshing] = useState(false)
+  const [historyRevision, setHistoryRevision] = useState(0)
+  const { data: chartData, loading: refreshing } = useStationHistory(station?.id, selectedPeriod, station?.lastUpdate, historyRevision)
+  const recentReadings = useMemo(() => chartData.slice(-10).reverse(), [chartData])
   const [showUnifiedChart, setShowUnifiedChart] = useState(false)
 
-  // Función optimizada para obtener datos
   const fetchStationData = useCallback(async () => {
-    try {
-      setRefreshing(true)
-      // Obtener información de la estación
-      const stationsResponse = await fetch("/api/stations")
-      const stationsResult = await stationsResponse.json()
-
-      if (stationsResult.success) {
-        const foundStation = stationsResult.data.find((s) => s.id === params.id)
-        if (foundStation) {
-          setStation(foundStation)
-        } else {
-          console.error("[v0] Station not found with ID:", params.id)
-          router.push("/")
-          return
-        }
-      }
-
-      // Obtener lecturas históricas
-      const readingsResponse = await fetch(`/api/readings?stationId=${params.id}&period=${selectedPeriod}`)
-      const readingsResult = await readingsResponse.json()
-
-      if (readingsResult.success) {
-        const formatted = readingsResult.data.map((reading) => ({
-          time: new Date(reading.timestamp).toLocaleDateString("es-ES", {
-            month: "short",
-            day: "numeric",
-            hour: "2-digit",
-            minute: "2-digit",
-          }),
-          temperature: reading.temperature,
-          humidity: reading.humidity,
-          timestamp: reading.timestamp,
-        }))
-        setChartData(formatted)
-        setRecentReadings(formatted.slice(-10).reverse())
-      }
-    } catch (error) {
-      console.error("[v0] Error cargando datos de la estación:", error)
-    } finally {
-      setLoading(false)
-      setRefreshing(false)
-    }
-  }, [params.id, selectedPeriod, router])
+    await refresh()
+    setHistoryRevision((value) => value + 1)
+  }, [refresh])
 
   // Manejar cambio de período
   const handlePeriodChange = useCallback((period) => {
@@ -121,12 +82,6 @@ export default function StationDetailPage() {
     
     URL.revokeObjectURL(url)
   }, [station, chartData, selectedPeriod])
-
-  useEffect(() => {
-    fetchStationData()
-    const interval = setInterval(fetchStationData, 30000) // Actualizar cada 30 segundos
-    return () => clearInterval(interval)
-  }, [fetchStationData])
 
   // Cálculos estadísticos memoizados
   const stats = useMemo(() => {
@@ -199,16 +154,7 @@ export default function StationDetailPage() {
     }
   }
 
-  const formatTime = (date) => {
-    const dateObj = new Date(date)
-    return dateObj.toLocaleString("es-ES", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    })
-  }
+  const formatTime = formatArgentina
 
   const calculateTrend = (dataKey) => {
     if (chartData.length < 2) return 0
@@ -329,7 +275,7 @@ export default function StationDetailPage() {
                       <span className="text-lg md:text-2xl font-bold text-muted-foreground">°C</span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1 hidden md:block">
-                      Actualizado hace {formatTime(station.lastUpdate).includes('Hace') ? formatTime(station.lastUpdate).split(' ')[1] : '1m'}
+                      <ReadingFreshness value={station.lastUpdate} />
                     </p>
                   </div>
                 </div>
@@ -394,7 +340,7 @@ export default function StationDetailPage() {
                       <span className="text-lg md:text-2xl font-bold text-muted-foreground">%</span>
                     </div>
                     <p className="text-xs text-muted-foreground mt-1 hidden md:block">
-                      Actualizado hace {formatTime(station.lastUpdate).includes('Hace') ? formatTime(station.lastUpdate).split(' ')[1] : '1m'}
+                      <ReadingFreshness value={station.lastUpdate} />
                     </p>
                   </div>
                 </div>
@@ -682,12 +628,9 @@ export default function StationDetailPage() {
                               <Calendar className="h-5 w-5 text-primary" />
                             </div>
                             <div>
-                              <p className="text-sm font-semibold text-foreground">
-                                {formatTime(reading.timestamp).split(' ')[0]}
-                              </p>
-                              <p className="text-xs text-muted-foreground">
-                                {formatTime(reading.timestamp).split(' ')[1]}
-                              </p>
+                              <time className="text-sm font-semibold text-foreground" dateTime={reading.timestamp}>
+                                {formatTime(reading.timestamp)}
+                              </time>
                             </div>
                           </div>
                         </td>

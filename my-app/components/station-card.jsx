@@ -1,6 +1,7 @@
 import Link from "next/link"
 import { Card } from "@/components/ui/card"
 import { Thermometer, Droplets, Radio, Clock } from "lucide-react"
+import { ReadingFreshness } from "@/components/reading-freshness"
 
 export function StationCard({ station }) {
   const getStatusColor = (status) => {
@@ -12,15 +13,6 @@ export function StationCard({ station }) {
       default:
         return "bg-muted"
     }
-  }
-
-  const formatTime = (date) => {
-    const dateObj = new Date(date)
-    const now = new Date()
-    const diff = Math.floor((now - dateObj) / 1000)
-    if (diff < 60) return `Hace ${diff}s`
-    if (diff < 3600) return `Hace ${Math.floor(diff / 60)}m`
-    return dateObj.toLocaleTimeString("es-ES", { hour: "2-digit", minute: "2-digit" })
   }
 
   return (
@@ -71,7 +63,7 @@ export function StationCard({ station }) {
 
           <div className="mt-4 flex items-center gap-2 rounded-lg bg-secondary/50 px-3 py-2">
             <Clock className="h-3.5 w-3.5 text-muted-foreground" />
-            <span className="text-xs text-muted-foreground">{formatTime(station.lastUpdate)}</span>
+            <span className="text-xs text-muted-foreground"><ReadingFreshness value={station.lastUpdate} /></span>
           </div>
         </div>
       </Card>

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { stationWithLatestReading } from "@/lib/station-data.mjs"
 
 export async function GET() {
   try {
@@ -18,17 +19,7 @@ export async function GET() {
     })
 
     // Formatear datos con última lectura
-    const formattedStations = stations.map((station) => ({
-      id: station.id,
-      mac: station.mac,
-      name: station.name,
-      status: station.status,
-      lastUpdate: station.updatedAt,
-      temperature: station.readings[0]?.temperature || null,
-      humidity: station.readings[0]?.humidity || null,
-      latitude: station.latitude || null,
-      longitude: station.longitude || null,
-    }))
+    const formattedStations = stations.map(stationWithLatestReading)
 
     return NextResponse.json(
       {

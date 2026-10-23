@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { ingestReading } from "@/lib/ingest-reading.mjs";
 
 // Endpoint para recibir datos de los ESP32
 export async function POST(request) {
@@ -16,41 +17,7 @@ export async function POST(request) {
       );
     }
 
-    // Buscar o crear estación
-    let station = await prisma.station.findUnique({ where: { mac } });
-
-    if (!station) {
-      // Crear nueva estación
-      station = await prisma.station.create({
-        data: {
-          mac,
-          name: name || `ESP32_${mac.slice(-4)}`,
-          status: "online",
-          // latitude: lat || null,
-          // longitude: lon || null,
-        },
-      });
-    } else {
-      // Actualizar estación existente
-      station = await prisma.station.update({
-        where: { id: station.id },
-        data: {
-          status: "online",
-          updatedAt: new Date(),
-          // ...(lat !== undefined && { latitude: lat }),
-          // ...(lon !== undefined && { longitude: lon }),
-        },
-      });
-    }
-
-    // Crear nueva lectura
-    await prisma.reading.create({
-      data: {
-        stationId: station.id,
-        temperature,
-        humidity,
-      },
-    });
+    const { station } = await ingestReading(prisma, { mac, name, temperature, humidity });
 
     return NextResponse.json(
       {

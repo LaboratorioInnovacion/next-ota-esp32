@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { ingestReading } from "@/lib/ingest-reading.mjs"
 
 export async function POST(request) {
   try {
@@ -9,39 +10,7 @@ export async function POST(request) {
       return NextResponse.json({ error: "Datos incompletos" }, { status: 400 })
     }
 
-    let station = await prisma.station.findUnique({
-      where: { mac: data.mac },
-    })
-
-    if (!station) {
-      station = await prisma.station.create({
-        data: {
-          mac: data.mac,
-          name: data.name,
-          status: "online",
-        },
-      })
-    } else {
-      // Actualizar última vez vista
-      await prisma.station.update({
-        where: { id: station.id },
-        data: {
-          status: "online",
-          updatedAt: new Date(),
-        },
-      })
-    }
-
-    const reading = await prisma.reading.create({
-      data: {
-        stationId: station.id,
-        temperature: data.temperature,
-        humidity: data.humidity,
-        timestamp: new Date(),
-      },
-    })
-
-    console.log("[v0] Datos meteorológicos guardados:", reading)
+    const { reading } = await ingestReading(prisma, data)
 
     return NextResponse.json(
       {
