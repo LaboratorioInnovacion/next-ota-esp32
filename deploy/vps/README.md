@@ -2,12 +2,12 @@
 
 The app-only stack reuses the completed DB bootstrap, existing data and exact
 credentials in `/opt/next-ota-esp32-vps/shared/.env`. It never initializes,
-recreates, migrates or pushes a database schema. The app is **not deployed yet**.
+recreates, migrates or pushes a database schema. Deployment status is recorded in CI.
 Public ingress remains out of scope because ingestion/delete APIs lack authentication.
 
 ## Approval boundary
 
-1. Review and publish the local changes only after separate approval.
+1. Review and publish the app-only changes after approval.
 2. Run **Prepare or deploy isolated private VPS** on the reviewed `main` revision.
    GitHub supplies the full image SHA automatically; an optional explicit SHA must
    match that revision. Leave `deploy_private=false` to prepare only the image.
@@ -15,8 +15,8 @@ Public ingress remains out of scope because ingestion/delete APIs lack authentic
    The protected `vps-private` environment must allow the deployment and have
    `VPS_PRIVATE_DEPLOY_ENABLED=true`. No push-triggered VPS deployment is configured.
 
-No commit, push, dispatch, image publication or remote change is authorized by
-this preparation. Vercel's independent Git integration is unchanged.
+The protected environment requires human approval; never self-approve or bypass
+it. Vercel's independent Git integration is unchanged; a push may trigger Vercel.
 
 ## Isolation contract
 
@@ -28,8 +28,8 @@ this preparation. Vercel's independent Git integration is unchanged.
 | Database | Existing `next_ota_vps`, reached as `db` on `next-ota-esp32-vps_database` |
 | Runtime role | Existing `next_ota_vps_app`; no owner credential passed to app |
 | Credentials | Existing shared `.env`; byte-preserving validation, no generation |
-| Networks | Existing dedicated internal DB network plus project-scoped outbound network |
-| Access | `127.0.0.1:3030`; no proxy attachment or public binding |
+| Networks | Existing internal DB network, project outbound network, dedicated internal proxy network |
+| Access | `127.0.0.1:3030` and NPM upstream `estaciones-app:3000`; no public host configured |
 | App limits | 768 MiB, 0.5 CPU |
 
 Missing bootstrap marker, credentials, dedicated volume/network labels or a healthy
@@ -39,6 +39,21 @@ The separate `deploy/db-bootstrap` workflow is one-time DB provisioning, not an
 app-release step. The existing DB has no Prisma migration history: **never run
 `prisma migrate deploy` or `prisma db push` against it**. Local migration SQL files
 are comparison fixtures only, not a deployment instruction.
+
+### Dedicated proxy network
+
+CI creates `next-ota-esp32-vps_proxy` only when absent, with an ownership label
+and internal bridge isolation. Reuse requires matching identity and only NPM or
+this project's app attached; foreign containers, including the DB, stop deployment.
+The guard verifies the running `nginx-proxy-manager` container and its existing
+`nginx-proxy-manager_proxy-net` connection, then adds only the dedicated network.
+It never detaches networks, restarts NPM, edits other app manifests, or configures
+NPM hosts, DNS or TLS. Existing NPM connections must remain byte-for-byte identical.
+An interrupted run may leave this labeled network attached; redeploy revalidates
+and reuses it without replacing anything.
+
+**Public routing remains blocked** until the unauthenticated destructive API and
+the intended public scope (ingestion endpoints versus dashboard) are resolved.
 
 ## CI prerequisites
 
@@ -55,7 +70,7 @@ unreachable DB URL and generate the Prisma client without connecting to the VPS.
 ## Verification and rollback
 
 ```sh
-node --test deploy/vps/tests.mjs deploy/db-bootstrap/tests.mjs
+node --test deploy/vps/tests.mjs deploy/vps/proxy.test.mjs deploy/db-bootstrap/tests.mjs
 node --test deploy/vps/schema.test.mjs
 node --test my-app/tests/*.test.mjs
 sh -n deploy/vps/init-db.sh deploy/vps/deploy-private.sh
@@ -68,7 +83,8 @@ or app-to-PostgreSQL runtime. That remains a delivery gate, together with the
 unavailable native review; neither is approved by passing these tests.
 
 After an approved CI deployment, health checks require HTTP 200 on `/` and
-read-only `/api/stations` over loopback. Access through an SSH tunnel; never use
+read-only `/api/stations` over loopback, plus `/` from NPM to `estaciones-app:3000`.
+The proxy guard runs again after app startup. Access through an SSH tunnel; never use
 ingestion or DELETE as probes. This is not public HTTPS acceptance.
 
 Rollback requires a reviewed revert commit on `main`, built and deployed through
@@ -77,3 +93,6 @@ rejects an arbitrary older image SHA that differs from its selected source revis
 Never run `down -v`, drop data, or reverse schema automatically. For a first
 deployment, stopping only this app requires separate approval; retain its DB,
 volume and bootstrap release.
+Reverting this integration removes only the proxy helper, Compose attachment,
+workflow bundle entry and their tests/docs. It does not detach NPM or delete the
+external network automatically; any remote removal needs separate approval.

@@ -8,7 +8,7 @@ on:
         required: false
         type: string
       deploy_private:
-        description: Deploy to loopback only (requires protected vps-private environment)
+        description: Deploy private app and dedicated NPM network (no public routes)
         default: false
         type: boolean
 
@@ -37,7 +37,7 @@ jobs:
         with:
           node-version: 24
       - name: Check isolation contract
-        run: node --test deploy/vps/tests.mjs
+        run: node --test deploy/vps/tests.mjs deploy/vps/proxy.test.mjs
       - name: Check Prisma source against existing bootstrap SQL offline
         working-directory: my-app
         env:
@@ -64,6 +64,7 @@ jobs:
             deploy/vps/compose.yml
             deploy/vps/deploy-private.sh
             deploy/vps/prepare-env.py
+            deploy/vps/prepare-proxy.py
 
   deploy:
     if: ${{ inputs.deploy_private && github.ref == 'refs/heads/main' }}

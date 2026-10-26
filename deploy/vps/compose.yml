@@ -9,7 +9,11 @@ services:
     environment:
       DATABASE_URL: postgresql://next_ota_vps_app:${VPS_APP_DB_PASSWORD:?Existing VPS app password required}@db:5432/next_ota_vps
     ports: ["127.0.0.1:3030:3000"]
-    networks: [database, outbound]
+    networks:
+      database:
+      outbound:
+      proxy:
+        aliases: [estaciones-app]
     healthcheck:
       test:
         - CMD
@@ -26,3 +30,6 @@ networks:
     external: true
     name: next-ota-esp32-vps_database
   outbound:
+  proxy:
+    external: true
+    name: next-ota-esp32-vps_proxy

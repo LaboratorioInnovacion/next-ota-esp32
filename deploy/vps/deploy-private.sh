@@ -31,10 +31,13 @@ compose() {
 }
 compose config --quiet
 compose pull app
+python3 prepare-proxy.py
 # The app-only Compose file cannot recreate the DB or apply schema commands.
 compose up -d --no-deps --wait --wait-timeout 180 app
 for path in / /api/stations; do
   test "$(curl --max-time 10 -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:3030$path")" = 200
 done
+python3 prepare-proxy.py
+test "$(docker exec nginx-proxy-manager curl --max-time 10 -s -o /dev/null -w '%{http_code}' http://estaciones-app:3000/)" = 200
 printf '%s\n' "$sha" > deployed-sha
 printf 'Private deployment healthy: %s\n' "$sha"

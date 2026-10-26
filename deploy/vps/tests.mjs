@@ -27,6 +27,9 @@ test("Compose renders with synthetic credentials and only dedicated resources", 
   assert.equal(config.services.app.depends_on, undefined);
   assert.equal(config.networks.database.external, true);
   assert.equal(config.networks.database.name, "next-ota-esp32-vps_database");
+  assert.equal(config.networks.proxy.external, true);
+  assert.equal(config.networks.proxy.name, "next-ota-esp32-vps_proxy");
+  assert.deepEqual(config.services.app.networks.proxy.aliases, ["estaciones-app"]);
   for (const resource of Object.values(config.networks)) {
     assert.ok(resource.name.startsWith("next-ota-esp32-vps_"));
   }
@@ -213,6 +216,8 @@ test("Mocked app-only deploy preserves credentials and fails closed without DB o
     const release = join(sandbox, "releases", sha, "app");
     mkdirSync(release, { recursive: true });
     writeFileSync(join(release, "prepare-env.py"), read("prepare-env.py"));
+    // The proxy guard has its own executable Docker mock suite.
+    writeFileSync(join(release, "prepare-proxy.py"), "");
     writeFileSync(join(release, "deploy-private.sh"), read("deploy-private.sh").replaceAll("/opt/next-ota-esp32-vps", sandbox));
     if (scenario !== "missing-env") {
       assert.equal(prepare(sandbox).status, 0);
@@ -230,6 +235,7 @@ case "$*" in
     echo next-ota-esp32-vps ;;
   'ps -q '*) echo db-id ;;
   'inspect '*) [ "$SCENARIO" != db-unhealthy ] || { echo unhealthy; exit 0; }; echo healthy ;;
+  'exec nginx-proxy-manager curl '*) printf 200 ;;
   *'pull app') [ "$SCENARIO" != pull-fails ] || exit 17 ;;
   *'up -d '*) [ "$SCENARIO" != app-fails ] || exit 18 ;;
 esac
