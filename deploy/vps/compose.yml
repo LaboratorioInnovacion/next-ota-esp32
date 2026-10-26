@@ -6,6 +6,9 @@ services:
     restart: unless-stopped
     mem_limit: 768m
     cpus: 0.5
+    env_file:
+      - path: ${APP_AUTH_ENV_FILE:?Dedicated app auth file required}
+        format: raw
     environment:
       DATABASE_URL: postgresql://next_ota_vps_app:${VPS_APP_DB_PASSWORD:?Existing VPS app password required}@db:5432/next_ota_vps
     ports: ["127.0.0.1:3030:3000"]

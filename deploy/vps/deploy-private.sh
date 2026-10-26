@@ -16,6 +16,8 @@ shared="$base/shared"
 test -f "$base/bootstrap-completed-sha"
 test -f "$shared/.env"
 python3 prepare-env.py "$shared"
+python3 validate-app-auth.py "$shared"
+export APP_AUTH_ENV_FILE="$shared/app-auth.env"
 project=next-ota-esp32-vps
 test "$(docker volume inspect "${project}_pgdata" --format '{{index .Labels "com.docker.compose.project"}}')" = "$project"
 test "$(docker network inspect "${project}_database" --format '{{index .Labels "com.docker.compose.project"}}')" = "$project"

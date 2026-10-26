@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
 import { chmodSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -12,9 +12,15 @@ const env = {
   ...process.env, APP_IMAGE: `ghcr.io/laboratorioinnovacion/next-ota-esp32:${"a".repeat(40)}`,
   VPS_DB_ADMIN_PASSWORD: "a".repeat(64), VPS_APP_DB_PASSWORD: "b".repeat(64),
 };
+const authSandbox = mkdtempSync(join(homedir(), ".ota-auth-test-"));
+const authPath = join(authSandbox, "app-auth.env");
+const syntheticToken = 'weather-$NOT_INTERPOLATED#hash"quote\'single\\backslash';
+writeFileSync(authPath, `ESP32_AUTH_TOKEN=${syntheticToken}\n`, { mode: 0o600 });
+env.APP_AUTH_ENV_FILE = authPath;
 const result = spawnSync("docker", ["compose", "-f", "deploy/vps/compose.yml", "config", "--format", "json"], {
   cwd: root, env, encoding: "utf8", timeout: 15000,
 });
+rmSync(authSandbox, { recursive: true, force: true });
 
 test("Compose renders with synthetic credentials and only dedicated resources", () => {
   assert.equal(result.status, 0, "Docker Compose parser is required; no daemon or containers needed");
@@ -35,6 +41,10 @@ test("Compose renders with synthetic credentials and only dedicated resources", 
   }
   assert.ok(config.services.app.environment.DATABASE_URL.includes("next_ota_vps_app:"));
   assert.equal(config.services.app.environment.VPS_DB_ADMIN_PASSWORD, undefined);
+  // Canonical Compose output escapes literal dollars for safe re-interpolation.
+  assert.equal(config.services.app.environment.ESP32_AUTH_TOKEN, syntheticToken.replaceAll("$", () => "$$"));
+  assert.equal(config.services.app.build, undefined);
+  assert.ok(!Object.keys(config.services.app.environment).some((key) => key.startsWith("NEXT_PUBLIC")));
   assert.ok(!JSON.stringify(config.services.app).includes("next_ota_vps_owner"));
 });
 
@@ -59,6 +69,10 @@ test("Only manual CI can reach the isolated deploy script", () => {
   assert.ok(workflow.includes("StrictHostKeyChecking=yes"));
   assert.ok(!workflow.includes("VPS_ENV"));
   assert.ok(workflow.includes("deploy/vps/prepare-env.py"));
+  assert.ok(workflow.includes("deploy/vps/validate-app-auth.py"));
+  assert.ok(workflow.includes("environment: vps-app"));
+  assert.ok(workflow.includes("my-app/tests/readings-delete.test.mjs"));
+  assert.ok(read("../../.github/workflows/db-bootstrap.yml").includes("environment: vps-private"));
   assert.equal(existsSync(new URL("../../.github/workflows/deploy.yml", import.meta.url)), false);
   const archived = read("../../trash/deploy.yml");
   assert.ok(archived.startsWith("# Retired:"));
@@ -142,7 +156,7 @@ stat -c '%a' "$key" "$hosts" bundle/.docker bundle/.docker/config.json
 });
 
 function fixture(run) {
-  const sandbox = mkdtempSync(join(tmpdir(), "ota-env-lifecycle-"));
+  const sandbox = mkdtempSync(join(homedir(), ".ota-env-lifecycle-"));
   try { run(sandbox); } finally { rmSync(sandbox, { recursive: true, force: true }); }
 }
 
@@ -152,6 +166,72 @@ function prepare(sandbox) {
     env: { ...process.env, DATABASE_URL: "never-import-this", VPS_APP_DB_PASSWORD: "never-reuse-this" },
   });
 }
+
+function appAuth(sandbox, token) {
+  const helper = fileURLToPath(new URL("validate-app-auth.py", import.meta.url));
+  const operation = token === undefined
+    ? "runpy.run_path(sys.argv[1])['validate'](sys.argv[2])"
+    : "runpy.run_path(sys.argv[1])['provision'](sys.argv[2], sys.stdin.buffer.read())";
+  const code = `import runpy,sys\ntry:\n ${operation}\nexcept (OSError, ValueError):\n sys.exit('App auth rejected')`;
+  return spawnSync("python3", ["-c", code, helper, join(sandbox, "shared")], {
+    input: token, encoding: "utf8", timeout: 10000,
+  });
+}
+
+test("App auth publishes once, preserves DB bytes and refuses silent rotation", () => fixture((sandbox) => {
+  assert.equal(prepare(sandbox).status, 0);
+  const shared = join(sandbox, "shared");
+  const db = readFileSync(join(shared, ".env"));
+  const before = statSync(shared);
+  const path = join(shared, "app-auth.env");
+  assert.equal(appAuth(sandbox, syntheticToken).status, 0);
+  const inode = statSync(path).ino;
+  assert.equal(statSync(path).mode & 0o777, 0o600);
+  assert.equal(appAuth(sandbox).status, 0);
+  assert.equal(appAuth(sandbox, syntheticToken).status, 0);
+  assert.notEqual(appAuth(sandbox, "different-synthetic-token").status, 0);
+  assert.equal(statSync(path).ino, inode);
+  assert.equal(readFileSync(path, "utf8"), `ESP32_AUTH_TOKEN=${syntheticToken}\n`);
+  assert.deepEqual(readFileSync(join(shared, ".env")), db);
+  assert.equal(statSync(shared).mode, before.mode);
+  assert.equal(statSync(shared).uid, before.uid);
+  assert.deepEqual(readdirSync(shared).sort(), [".env", "app-auth.env"]);
+}));
+
+test("App auth rejects invalid, insecure and linked files without repair or output", () => {
+  for (const state of ["missing", "empty", "space", "duplicate", "extra-key", "file-mode", "directory-mode", "symlink", "parent-symlink", "hardlink"]) fixture((sandbox) => {
+    const shared = join(sandbox, "shared");
+    mkdirSync(shared, { mode: 0o700 });
+    const path = join(shared, "app-auth.env");
+    let content = `ESP32_AUTH_TOKEN=${syntheticToken}\n`;
+    if (state === "empty") content = "ESP32_AUTH_TOKEN=\n";
+    if (state === "space") content = "ESP32_AUTH_TOKEN=not valid\n";
+    if (state === "duplicate") content += content;
+    if (state === "extra-key") content += "OTHER=forbidden\n";
+    if (state !== "missing") writeFileSync(path, content, { mode: 0o600 });
+    if (state === "file-mode") chmodSync(path, 0o644);
+    if (state === "directory-mode") chmodSync(shared, 0o755);
+    if (state === "symlink" || state === "hardlink") {
+      const other = join(sandbox, "other");
+      writeFileSync(other, content, { mode: 0o600 });
+      rmSync(path);
+      (state === "symlink" ? symlinkSync : linkSync)(other, path);
+    }
+    if (state === "parent-symlink") {
+      rmSync(path); rmSync(shared, { recursive: true });
+      const other = join(sandbox, "other"); mkdirSync(other, { mode: 0o700 });
+      writeFileSync(join(other, "app-auth.env"), content, { mode: 0o600 });
+      symlinkSync(other, shared);
+    }
+    for (const token of [undefined, ...(state === "missing" ? [""] : [syntheticToken])]) {
+      const checked = appAuth(sandbox, token);
+      assert.notEqual(checked.status, 0, state);
+      assert.equal(checked.stdout, "");
+      assert.equal(checked.stderr, "App auth rejected\n");
+    }
+    assert.equal(existsSync(path) ? readFileSync(path, "utf8") : null, state === "missing" ? null : content);
+  });
+});
 
 test("One-time bootstrap atomically generates private credentials without reading project env", () => fixture((sandbox) => {
   const projectEnv = join(sandbox, ".env");
@@ -211,16 +291,20 @@ test("Missing, invalid, duplicate, equal, insecure and symlink envs fail closed 
 });
 
 test("Mocked app-only deploy preserves credentials and fails closed without DB or bootstrap", () => {
-  for (const scenario of ["healthy", "db-unhealthy", "missing-env", "missing-bootstrap", "inspect-fails", "pull-fails", "app-fails", "probe-fails"]) fixture((sandbox) => {
+  for (const scenario of ["healthy", "missing-auth", "invalid-auth", "insecure-auth", "db-unhealthy", "missing-env", "missing-bootstrap", "inspect-fails", "pull-fails", "app-fails", "probe-fails"]) fixture((sandbox) => {
     const sha = "a".repeat(40);
     const release = join(sandbox, "releases", sha, "app");
     mkdirSync(release, { recursive: true });
     writeFileSync(join(release, "prepare-env.py"), read("prepare-env.py"));
+    writeFileSync(join(release, "validate-app-auth.py"), read("validate-app-auth.py"));
     // The proxy guard has its own executable Docker mock suite.
     writeFileSync(join(release, "prepare-proxy.py"), "");
     writeFileSync(join(release, "deploy-private.sh"), read("deploy-private.sh").replaceAll("/opt/next-ota-esp32-vps", sandbox));
     if (scenario !== "missing-env") {
       assert.equal(prepare(sandbox).status, 0);
+      if (scenario !== "missing-auth") writeFileSync(join(sandbox, "shared", "app-auth.env"),
+        scenario === "invalid-auth" ? "ESP32_AUTH_TOKEN=\n" : `ESP32_AUTH_TOKEN=${syntheticToken}\n`,
+        { mode: scenario === "insecure-auth" ? 0o644 : 0o600 });
     }
     if (scenario !== "missing-bootstrap") writeFileSync(join(sandbox, "bootstrap-completed-sha"), sha);
     mkdirSync(join(release, ".docker"));

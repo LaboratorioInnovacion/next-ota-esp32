@@ -24,6 +24,39 @@ Invalid measurements or malformed JSON return 400; internal failures return a
 generic 500. Successful response schemas are unchanged. Offline regression tests:
 `node --test tests/*.test.mjs` from `my-app`; no database is required.
 
+## Protect bulk reading deletion
+
+`DELETE /api/readings/delete-all` requires `Authorization: Bearer <weather-token>`.
+Set server-only `ESP32_AUTH_TOKEN` to the **same existing credential sent by the
+meteorological ESP32**, not `ESP32_DIAGNOSTICS_TOKEN`. Anyone holding that shared
+credential can delete all readings. POST ingestion behavior is unchanged.
+
+- **Vercel:** add `ESP32_AUTH_TOKEN` in the project's Environment Variables settings
+  for the intended environment, then create a new deployment containing this fix.
+- **VPS:** the app-only Compose deployment reads the dedicated runtime file
+  `/opt/next-ota-esp32-vps/shared/app-auth.env` using raw format. It must contain only
+  `ESP32_AUTH_TOKEN`, be owned by the deployment user with mode `0600`, and reside
+  in the private `0700` shared directory. Validation fails closed without repair.
+  Do not alter the generated DB-only credentials file to provision this credential.
+- **Local/manual:** supply the variable securely to the server and separately to
+  the REST client's process environment for the root `api.http` example. Never
+  commit its value, put it in a URL, expose it to browser code, or use `NEXT_PUBLIC_`.
+
+The value must be nonempty printable ASCII without whitespace; no diagnostics-only
+length or URL-safe alphabet restriction applies. Missing/invalid server configuration
+returns 503. Missing, malformed, or incorrect bearer authentication returns 401.
+Rejections do not load persistence or parse the request body. Authorized success
+and sanitized database-error responses retain their existing contracts.
+
+Offline verification: `node --test tests/readings-delete.test.mjs` from `my-app`.
+Do not verify by deleting production data. Existing deployments remain unprotected
+until replaced by a new build containing this fix.
+
+The manual `vps-private.yml` application workflow uses the `vps-app` environment,
+restricted to `main` without a human approval gate. Its explicit enablement flag,
+immutable revision checks, tests and SSH verification remain required. Database
+bootstrap still uses the separately reviewed `vps-private` environment.
+
 ## Getting Started
 
 First, run the development server:

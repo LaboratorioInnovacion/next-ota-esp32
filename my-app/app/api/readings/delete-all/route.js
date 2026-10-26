@@ -1,21 +1,9 @@
-import { NextResponse } from "next/server"
-import { prisma } from "@/lib/prisma"
+import { readingsDelete } from "@/lib/readings-delete-http.mjs"
 
-// Endpoint para eliminar todas las lecturas
-export async function DELETE(request) {
-  try {
-    const result = await prisma.reading.deleteMany({})
+export const runtime = "nodejs"
 
-    return NextResponse.json(
-      {
-        success: true,
-        message: "Todas las lecturas han sido eliminadas",
-        count: result.count,
-      },
-      { status: 200 },
-    )
-  } catch (error) {
-    console.error("Error eliminando lecturas:", error)
-    return NextResponse.json({ error: "Error al eliminar las lecturas" }, { status: 500 })
-  }
-}
+export const DELETE = readingsDelete(async (args) => {
+  // Load persistence only after authorization succeeds.
+  const { prisma } = await import("@/lib/prisma")
+  return prisma.reading.deleteMany(args)
+})
