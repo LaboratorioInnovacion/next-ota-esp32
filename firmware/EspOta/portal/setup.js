@@ -3,6 +3,7 @@ const form = document.getElementById('setup-form');
 const ssid = document.getElementById('ssid');
 const password = document.getElementById('password');
 const stationName = document.getElementById('station-name');
+const sendInterval = document.getElementById('send-interval');
 const latitude = document.getElementById('latitude');
 const longitude = document.getElementById('longitude');
 const reveal = document.getElementById('reveal');
@@ -14,6 +15,13 @@ reveal.addEventListener('click', () => {
   reveal.textContent = visible ? 'Ocultar contraseña' : 'Mostrar contraseña';
 });
 form.addEventListener('submit', event => {
+  if (sendInterval.value !== '' && (!/^[0-9]+$/.test(sendInterval.value) ||
+      !Number.isSafeInteger(Number(sendInterval.value)) || Number(sendInterval.value) < 60 ||
+      Number(sendInterval.value) > 86400)) {
+    event.preventDefault();
+    document.getElementById('form-status').textContent = 'Enter an integer interval from 60 to 86400 seconds, or leave blank to use the firmware default.';
+    return;
+  }
   const name = stationName.value.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, '');
   if (new TextEncoder().encode(stationName.value).length > 64 || /[\u0000-\u001f\u007f-\u009f]/u.test(name)) {
     event.preventDefault();

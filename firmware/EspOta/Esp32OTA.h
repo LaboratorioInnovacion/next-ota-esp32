@@ -43,6 +43,8 @@ public:
   // Envía datos meteorológicos por POST
   bool sendWeatherData(float temperature, float humidity, const char* endpointUrl);
   bool networkReady() const { return provisioning.ready() && !provisioning.portalActive(); }
+  void setSendIntervalDefault(uint32_t seconds) { provisioning.setSendIntervalDefault(seconds); }
+  uint32_t sendIntervalSeconds() const { return provisioning.sendIntervalSeconds(); }
   bool diagnosticsReady();
   int sendDiagnostics(const char* endpoint, const char* sensorStatus,
                       const char* errorCode, uint64_t uptimeMs);

@@ -18,6 +18,10 @@ public:
   bool portalActive() const { return policy_.portal(); }
   const provisioning::Location& location() const { return location_.value(); }
   const char* stationName(const char* firmware) const { return stationName_.effective(firmware); }
+  void setSendIntervalDefault(uint32_t seconds) {
+    if (provisioning::validSendInterval(seconds)) defaultSendSeconds_ = seconds;
+  }
+  uint32_t sendIntervalSeconds() const { return sendInterval_.effective(defaultSendSeconds_); }
 
 private:
   void disconnect() override;
@@ -51,6 +55,9 @@ private:
   provisioning::Location pendingLocation_;
   provisioning::StationNameOverride stationName_;
   provisioning::StationName pendingName_;
+  provisioning::SendIntervalOverride sendInterval_;
+  uint32_t pendingSendSeconds_ = 0;
+  uint32_t defaultSendSeconds_ = provisioning::DefaultSendIntervalSeconds;
   String formValues_;
   CaptiveDnsSocket dnsSocket_;
   provisioning::CaptiveDnsService<CaptiveDnsSocket> dns_;

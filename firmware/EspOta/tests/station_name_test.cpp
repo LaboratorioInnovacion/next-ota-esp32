@@ -128,7 +128,8 @@ void prefill() {
   for (int cleared = 0; cleared < 2; ++cleared) {
     if (cleared) assert(state.commit(storage, StationName{}));
     StationNameOverride boot; boot.load(storage);
-    const std::string values = std::string("test-token") + portal_assets::FormMiddle + htmlAttribute<std::string>(boot.saved());
+    const std::string values = std::string("test-token") + portal_assets::FormMiddle + htmlAttribute<std::string>(boot.saved()) +
+        portal_assets::FormInterval + "" + portal_assets::FormEffective + "300" + portal_assets::FormDefault + "300";
     ResponseStream stream;
     stream.begin(nullptr, 0, portal_assets::FormStart, sizeof(portal_assets::FormStart) - 1,
         values.c_str(), values.size(), portal_assets::FormEnd, sizeof(portal_assets::FormEnd) - 1);
@@ -138,7 +139,7 @@ void prefill() {
     assert(rendered.find(cleared ? "name=\"name\" value=\"\"" :
         "name=\"name\" value=\"Estación &quot;&lt;Norte&gt;&quot; &amp; patio\"") != std::string::npos);
     assert(rendered.find("{{NAME}}") == std::string::npos && rendered.find("{{TOKEN}}") == std::string::npos);
-    assert(rendered.find("Firmware") == std::string::npos);
+    assert(rendered.find("name=\"name\" value=\"Firmware\"") == std::string::npos);
   }
 }
 int main() {

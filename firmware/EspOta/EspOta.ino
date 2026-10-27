@@ -10,6 +10,9 @@ static_assert(sizeof(STATION_NAME) > 1 && sizeof(STATION_NAME) <= 65, "Station n
 constexpr float DEFAULT_LONGITUDE = -65.7863f;
 // Optional HTTP station identifier, not a WiFi/radio MAC change. Empty uses hardware.
 constexpr char STATION_MAC_OVERRIDE[] = "";
+constexpr uint32_t DEFAULT_SEND_INTERVAL_SECONDS = 300;
+static_assert(provisioning::validSendInterval(DEFAULT_SEND_INTERVAL_SECONDS),
+              "Weather send interval must be 60-86400 seconds");
 static_assert(provisioning::validCoordinates(DEFAULT_LATITUDE, DEFAULT_LONGITUDE),
               "Station defaults must be finite latitude [-90,90] and longitude [-180,180]");
 
@@ -46,17 +49,20 @@ void setup() {
   esp.setWiFiNetworks(ssids, passwords, networkCount);
   esp.setLocation(DEFAULT_LATITUDE, DEFAULT_LONGITUDE);
   esp.setStationMacOverride(STATION_MAC_OVERRIDE);
+  esp.setSendIntervalDefault(DEFAULT_SEND_INTERVAL_SECONDS);
   // Load persisted metadata after the sketch's fallback location is configured.
   esp.begin();
   weatherDelivery.begin(millis());
   
   lastSensorRead = millis() - 10000UL;
-  Serial.println("Setup completado: dos destinos cada 5 minutos, MQTT para OTA.");
+  Serial.println("Setup complete: first valid weather sample is due when WiFi is ready; MQTT for OTA.");
 }
 
 void loop() {
   esp.loop();
   const unsigned long now = millis();
+  weatherDelivery.network(esp.networkReady());
+  weatherDelivery.setIntervalSeconds(esp.sendIntervalSeconds(), now);
   diagnosticState.tick(now);
   if (now - lastSensorRead >= 10000UL) {
     lastSensorRead = now;

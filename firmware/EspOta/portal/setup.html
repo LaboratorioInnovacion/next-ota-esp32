@@ -15,6 +15,9 @@
 <label for="station-name">Nombre de la estación (opcional)</label>
 <input id="station-name" name="name" value="{{NAME}}" maxlength="64" autocomplete="off" aria-describedby="name-help">
 <p class="hint" id="name-help">Máximo 64 bytes UTF-8, sin caracteres de control. Se quitan los espacios al inicio y al final. Deje vacío para borrar el nombre guardado y usar el nombre del firmware. Se aplica después de conectar y guardar la red; no cambia la MAC ni el nombre del punto de acceso.</p>
+<label for="send-interval">Weather send interval in seconds (optional)</label>
+<input id="send-interval" name="sendInterval" type="number" min="60" max="86400" step="1" value="{{INTERVAL}}" autocomplete="off" aria-describedby="interval-help">
+<p class="hint" id="interval-help">Current effective interval: {{EFFECTIVE}} seconds. Firmware default: {{DEFAULT}} seconds. The field shows only the saved override. Enter an integer from 60 to 86400. Leave blank to clear the override and use the firmware default immediately after a successful save and on reboot. Saved settings take priority. The first valid sample is due when WiFi is ready; subsequent successful sends use this interval. Failed destinations retry no sooner than 60 seconds.</p>
 <label for="ssid">Nombre de la red (SSID)</label>
 <input id="ssid" name="ssid" maxlength="32" required autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="ssid-help">
 <p class="hint" id="ssid-help">Respete espacios y mayúsculas. Máximo 32 bytes.</p>

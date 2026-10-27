@@ -41,6 +41,7 @@ void WiFiProvisioning::begin() {
   metadataReady_ = metadata_.begin("station-meta", false);
   location_.load(*this);
   if (metadataReady_) stationName_.load(metadata_);
+  if (metadataReady_) sendInterval_.load(metadata_);
   policy_.begin(millis(), saved_.count + compiledCount_, *this);
 }
 
@@ -91,9 +92,14 @@ bool WiFiProvisioning::saveCandidate() {
   // confirmed network storage. Failure leaves the active location unchanged.
   if (!saved) return false;
   const provisioning::Location previous = location_.value();
+  provisioning::StationName previousName{};
+  provisioning::parseStationName(stationName_.saved(), previousName);
   if (!location_.commit(*this, pendingLocation_)) return false;
-  if (stationName_.commit(metadata_, pendingName_)) return true;
-  location_.commit(*this, previous); // Best-effort rollback on a name storage failure.
+  if (stationName_.commit(metadata_, pendingName_)) {
+    if (sendInterval_.commit(metadata_, pendingSendSeconds_)) return true;
+    stationName_.commit(metadata_, previousName);
+  }
+  location_.commit(*this, previous); // Best-effort rollback, not an NVS transaction.
   return false;
 }
 
@@ -167,10 +173,11 @@ void WiFiProvisioning::stopPortal() {
 void WiFiProvisioning::result(bool connected, bool saved) {
   Serial.println(!connected ? "New network failed; existing networks preserved." :
                  saved ? "New network connected and saved; setup closed." :
-                          "Network connected; WiFi/location/name save NOT fully confirmed. Review configuration.");
+                          "Network connected; WiFi/location/name/interval save NOT fully confirmed. Review configuration.");
   candidate_ = provisioning::Credential{};
   pendingLocation_ = provisioning::Location{};
   pendingName_ = provisioning::StationName{};
+  pendingSendSeconds_ = 0;
 }
 
 void WiFiProvisioning::respond(int code, const String& body) {
@@ -188,7 +195,10 @@ void WiFiProvisioning::respond(int code, const String& body) {
 void WiFiProvisioning::asset(const char* body, size_t length, const char* type,
                              const char* tail, size_t tailLength) {
   if (tail) formValues_ = token_ + portal_assets::FormMiddle +
-      provisioning::htmlAttribute<String>(stationName_.saved());
+      provisioning::htmlAttribute<String>(stationName_.saved()) + portal_assets::FormInterval +
+      (sendInterval_.saved() ? String(sendInterval_.saved()) : String("")) +
+      portal_assets::FormEffective + String(sendIntervalSeconds()) +
+      portal_assets::FormDefault + String(defaultSendSeconds_);
   const size_t tokenLength = tail ? formValues_.length() : 0;
   const int headerLength = snprintf(responseHeader_, sizeof(responseHeader_),
       "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nCache-Control: no-store\r\n"
@@ -249,7 +259,8 @@ void WiFiProvisioning::serve() {
   provisioning::Credential submitted{};
   provisioning::Location submittedLocation;
   provisioning::StationName submittedName;
-  const provisioning::Request parsed = provisioning::parse(request_, requestSize_, token_.c_str(), submitted, &submittedLocation, &submittedName);
+  uint32_t submittedInterval = 0;
+  const provisioning::Request parsed = provisioning::parse(request_, requestSize_, token_.c_str(), submitted, &submittedLocation, &submittedName, &submittedInterval);
   if (parsed == provisioning::Request::Incomplete) {
     if (requestSize_ == provisioning::RequestLimit) respond(413, "Request too large.");
     return;
@@ -277,10 +288,12 @@ void WiFiProvisioning::serve() {
     candidate_ = submitted;
     pendingLocation_ = submittedLocation;
     pendingName_ = submittedName;
+    pendingSendSeconds_ = submittedInterval;
     if (!policy_.submit(millis(), *this)) {
       candidate_ = provisioning::Credential{};
       pendingLocation_ = provisioning::Location{};
       pendingName_ = provisioning::StationName{};
+      pendingSendSeconds_ = 0;
       respond(409, "La ventana de configuración está terminando. No se cambiaron credenciales. Reintente en la próxima ventana.");
       return;
     }

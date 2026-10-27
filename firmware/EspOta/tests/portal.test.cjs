@@ -10,7 +10,7 @@ test('generated flash contains exact manual form assets', () => {
   for (const file of ['setup.css', 'setup.js'])
     assert.ok(header.includes(fs.readFileSync(path.join(root, 'portal', file), 'utf8')));
   const html = fs.readFileSync(path.join(root, 'portal/setup.html'), 'utf8');
-  for (const part of html.split(/\{\{(?:TOKEN|NAME)\}\}/)) assert.ok(header.includes(part));
+  for (const part of html.split(/\{\{(?:TOKEN|NAME|INTERVAL|EFFECTIVE|DEFAULT)\}\}/)) assert.ok(header.includes(part));
   assert.match(html, /<form method="post" action="\/save"/);
   assert.match(html, /name="token" value="\{\{TOKEN\}\}"/);
   assert.match(html, /name="ssid"[^>]*required autocomplete="off"/);
@@ -28,7 +28,7 @@ test('portal has no QR image selector, decoder or upload path', () => {
 function harness() {
   let submitted = 0;
   const elements = new Map();
-  const ids = new Set(['setup-form', 'ssid', 'password', 'station-name', 'latitude', 'longitude', 'reveal', 'submit', 'form-status']);
+  const ids = new Set(['setup-form', 'ssid', 'password', 'station-name', 'send-interval', 'latitude', 'longitude', 'reveal', 'submit', 'form-status']);
   function element(id) {
     assert.ok(ids.has(id), `Unexpected DOM dependency: ${id}`);
     if (!elements.has(id)) elements.set(id, {
@@ -121,5 +121,26 @@ test('optional station name uses native form POST, preserves other fields and va
     assert.equal(h.element('password').value, 'test-only-pass');
     assert.equal(h.element('latitude').value, '0');
     assert.equal(h.element('submit').disabled, accepted);
+  }
+});
+
+test('optional interval shows saved/effective distinction and validates native POST without networking', () => {
+  const html = fs.readFileSync(path.join(root, 'portal/setup.html'), 'utf8');
+  assert.match(html, /id="send-interval" name="sendInterval" type="number" min="60" max="86400" step="1" value="\{\{INTERVAL\}\}"/);
+  assert.match(html, /Current effective interval: \{\{EFFECTIVE\}\} seconds/);
+  assert.match(html, /Firmware default: \{\{DEFAULT\}\} seconds/);
+  assert.match(html, /Leave blank to clear the override/);
+  for (const [value, accepted] of [['', true], ['60', true], ['300', true], ['86400', true],
+    ['59', false], ['86401', false], ['0', false], ['-60', false], ['60.0', false],
+    ['1e3', false], ['0x100', false], [' 300', false], ['NaN', false],
+    ['4294967296', false], ['18446744073709551616', false]]) {
+    const h = harness(); let prevented = false;
+    h.element('ssid').value = 'Fixture'; h.element('password').value = 'test-only-pass';
+    h.element('send-interval').value = value;
+    h.element('setup-form').listeners.submit({ preventDefault() { prevented = true; } });
+    assert.equal(prevented, !accepted, value);
+    assert.equal(h.element('submit').disabled, accepted);
+    assert.equal(h.element('send-interval').value, value);
+    assert.equal(h.submitted(), 0);
   }
 });

@@ -3,6 +3,7 @@
 #include "WiFiPolicy.h"
 #include "StationLocation.h"
 #include "StationName.h"
+#include "SendInterval.h"
 #include <stdlib.h>
 #include <strings.h>
 
@@ -39,7 +40,8 @@ inline bool decode(const char* first, size_t length, char* out, size_t capacity)
 // oversized headers/bodies, foreign Host/Origin, and unexpected form fields.
 // No credential is ever included in a response.
 inline Request parse(const char* data, size_t length, const char* token, Credential& credential,
-                     Location* location = nullptr, StationName* stationName = nullptr) {
+                     Location* location = nullptr, StationName* stationName = nullptr,
+                     uint32_t* sendInterval = nullptr) {
   if (length > RequestLimit || memchr(data, 0, length)) return Request::Reject;
   const char* end = strstr(data, "\r\n\r\n");
   if (!end) return length >= 1024 ? Request::Reject : Request::Incomplete;
@@ -127,6 +129,8 @@ inline Request parse(const char* data, size_t length, const char* token, Credent
   char latitude[25] = {}, longitude[25] = {};
   char name[StationNameLimit + 1] = {};
   bool nameSeen = false;
+  char interval[16] = {};
+  bool intervalSeen = false;
   bool latitudeSeen = false, longitudeSeen = false;
   bool ssidSeen = false, passwordSeen = false, tokenSeen = false;
   const char* field = data + headerSize;
@@ -150,6 +154,8 @@ inline Request parse(const char* data, size_t length, const char* token, Credent
       target = longitude; capacity = sizeof(longitude); longitudeSeen = true;
     } else if (equal - field == 4 && memcmp(field, "name", 4) == 0 && !nameSeen) {
       target = name; capacity = sizeof(name); nameSeen = true;
+    } else if (equal - field == 12 && memcmp(field, "sendInterval", 12) == 0 && !intervalSeen) {
+      target = interval; capacity = sizeof(interval); intervalSeen = true;
     } else return Request::Reject;
     if (!decode(equal + 1, size_t(amp - equal - 1), target, capacity)) return Request::Reject;
     field = amp + 1;
@@ -157,11 +163,14 @@ inline Request parse(const char* data, size_t length, const char* token, Credent
   if (!ssidSeen || !passwordSeen || !tokenSeen || strcmp(token, receivedToken)) return Request::Reject;
   Location parsedLocation;
   StationName parsedName;
+  uint32_t parsedInterval = 0;
+  if (!parseSendInterval(interval, parsedInterval)) return Request::Reject;
   if (!parseStationName(name, parsedName)) return Request::Reject;
   if (!parseLocation(latitude, longitude, parsedLocation)) return Request::Reject;
   if (!assign(credential, ssid, strlen(ssid), password, strlen(password))) return Request::Reject;
   if (location) *location = parsedLocation;
   if (stationName) *stationName = parsedName;
+  if (sendInterval) *sendInterval = parsedInterval;
   return Request::Submit;
 }
 } // namespace provisioning

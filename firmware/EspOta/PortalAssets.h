@@ -19,8 +19,14 @@ static const char FormMiddle[] PROGMEM = R"PORTAL(">
 <section aria-labelledby="step2"><h2 id="step2">2. Revise los datos</h2>
 <label for="station-name">Nombre de la estación (opcional)</label>
 <input id="station-name" name="name" value=")PORTAL";
-static const char FormEnd[] PROGMEM = R"PORTAL(" maxlength="64" autocomplete="off" aria-describedby="name-help">
+static const char FormInterval[] PROGMEM = R"PORTAL(" maxlength="64" autocomplete="off" aria-describedby="name-help">
 <p class="hint" id="name-help">Máximo 64 bytes UTF-8, sin caracteres de control. Se quitan los espacios al inicio y al final. Deje vacío para borrar el nombre guardado y usar el nombre del firmware. Se aplica después de conectar y guardar la red; no cambia la MAC ni el nombre del punto de acceso.</p>
+<label for="send-interval">Weather send interval in seconds (optional)</label>
+<input id="send-interval" name="sendInterval" type="number" min="60" max="86400" step="1" value=")PORTAL";
+static const char FormEffective[] PROGMEM = R"PORTAL(" autocomplete="off" aria-describedby="interval-help">
+<p class="hint" id="interval-help">Current effective interval: )PORTAL";
+static const char FormDefault[] PROGMEM = R"PORTAL( seconds. Firmware default: )PORTAL";
+static const char FormEnd[] PROGMEM = R"PORTAL( seconds. The field shows only the saved override. Enter an integer from 60 to 86400. Leave blank to clear the override and use the firmware default immediately after a successful save and on reboot. Saved settings take priority. The first valid sample is due when WiFi is ready; subsequent successful sends use this interval. Failed destinations retry no sooner than 60 seconds.</p>
 <label for="ssid">Nombre de la red (SSID)</label>
 <input id="ssid" name="ssid" maxlength="32" required autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="ssid-help">
 <p class="hint" id="ssid-help">Respete espacios y mayúsculas. Máximo 32 bytes.</p>
@@ -71,6 +77,7 @@ const form = document.getElementById('setup-form');
 const ssid = document.getElementById('ssid');
 const password = document.getElementById('password');
 const stationName = document.getElementById('station-name');
+const sendInterval = document.getElementById('send-interval');
 const latitude = document.getElementById('latitude');
 const longitude = document.getElementById('longitude');
 const reveal = document.getElementById('reveal');
@@ -82,6 +89,13 @@ reveal.addEventListener('click', () => {
   reveal.textContent = visible ? 'Ocultar contraseña' : 'Mostrar contraseña';
 });
 form.addEventListener('submit', event => {
+  if (sendInterval.value !== '' && (!/^[0-9]+$/.test(sendInterval.value) ||
+      !Number.isSafeInteger(Number(sendInterval.value)) || Number(sendInterval.value) < 60 ||
+      Number(sendInterval.value) > 86400)) {
+    event.preventDefault();
+    document.getElementById('form-status').textContent = 'Enter an integer interval from 60 to 86400 seconds, or leave blank to use the firmware default.';
+    return;
+  }
   const name = stationName.value.replace(/^[\t\n\v\f\r ]+|[\t\n\v\f\r ]+$/g, '');
   if (new TextEncoder().encode(stationName.value).length > 64 || /[\u0000-\u001f\u007f-\u009f]/u.test(name)) {
     event.preventDefault();
