@@ -2,9 +2,15 @@ This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-
 
 ## Measurement ingestion contract
 
-`POST /api/esp32` and `POST /api/weather` accept JSON objects up to 2048
-streamed bytes. Authorization remains optional and ignored for compatibility;
-this change does not secure those public measurement endpoints.
+`POST /api/esp32` requires `Authorization: Bearer <weather-token>`, using the
+server-only `ESP32_AUTH_TOKEN` shared with bulk deletion (configuration below).
+Missing/invalid server configuration returns 503; missing, malformed, or incorrect
+authentication returns 401 before reading the body or loading persistence.
+Diagnostics uses its separate `ESP32_DIAGNOSTICS_TOKEN`, never this credential.
+
+`POST /api/esp32` and `POST /api/weather` accept JSON objects up to 2048 streamed
+bytes. The legacy `/api/weather` route still ignores Authorization; it is not
+protected by this change.
 
 | Field | Accepted values |
 | --- | --- |
@@ -17,10 +23,14 @@ this change does not secure those public measurement endpoints.
 Omit **both** coordinates to retain a saved location (or leave a new station's
 location null). Partial pairs, nulls, and numeric strings are rejected; no
 fallback location or coordinate aliases are introduced. Coordinates and readings
-persist in the same transaction. Names remain creation-only, and receipt-time
-timestamps and diagnostics fields retain their existing semantics.
+persist in the same transaction. A nonempty name, trimmed of surrounding whitespace,
+updates the station matched by its exact MAC without changing its ID or reading
+history. An omitted, null, empty, or whitespace-only name retains the saved name;
+new stations without a usable name default to `ESP32_<last four MAC characters>`.
+Weather still rejects omitted, null, and empty names. Receipt-time timestamps and
+diagnostics fields retain their existing semantics.
 
-Invalid measurements or malformed JSON return 400; internal failures return a
+After authentication, invalid measurements or malformed JSON return 400; internal failures return a
 generic 500. Successful response schemas are unchanged. Offline regression tests:
 `node --test tests/*.test.mjs` from `my-app`; no database is required.
 
@@ -29,7 +39,7 @@ generic 500. Successful response schemas are unchanged. Offline regression tests
 `DELETE /api/readings/delete-all` requires `Authorization: Bearer <weather-token>`.
 Set server-only `ESP32_AUTH_TOKEN` to the **same existing credential sent by the
 meteorological ESP32**, not `ESP32_DIAGNOSTICS_TOKEN`. Anyone holding that shared
-credential can delete all readings. POST ingestion behavior is unchanged.
+credential can delete all readings and submit ESP32 measurements.
 
 - **Vercel:** add `ESP32_AUTH_TOKEN` in the project's Environment Variables settings
   for the intended environment, then create a new deployment containing this fix.
@@ -49,8 +59,9 @@ Rejections do not load persistence or parse the request body. Authorized success
 and sanitized database-error responses retain their existing contracts.
 
 Offline verification: `node --test tests/readings-delete.test.mjs` from `my-app`.
-Do not verify by deleting production data. Existing deployments remain unprotected
-until replaced by a new build containing this fix.
+Do not verify by deleting production data. ESP32 POST protection requires a new
+deployment containing this change on each host; provisioning the variable alone
+does not protect an older build. This change does not alter deployed DELETE protection.
 
 The manual `vps-private.yml` application workflow uses the `vps-app` environment,
 restricted to `main` without a human approval gate. Its explicit enablement flag,
