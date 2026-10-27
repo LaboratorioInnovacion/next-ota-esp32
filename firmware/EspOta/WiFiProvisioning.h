@@ -17,6 +17,7 @@ public:
   bool ready() const { return policy_.online() && WiFi.status() == WL_CONNECTED; }
   bool portalActive() const { return policy_.portal(); }
   const provisioning::Location& location() const { return location_.value(); }
+  const char* stationName(const char* firmware) const { return stationName_.effective(firmware); }
 
 private:
   void disconnect() override;
@@ -29,6 +30,7 @@ private:
   bool write(size_t slot, const provisioning::Credential& value) override;
   size_t readLocation(provisioning::LocationBlob& value) override;
   size_t writeLocation(const provisioning::LocationBlob& value) override;
+  bool clearLocation() override;
   void serve();
   void respond(int code, const String& body);
   void asset(const char* body, size_t length, const char* type,
@@ -47,6 +49,9 @@ private:
   bool metadataReady_ = false;
   provisioning::StationLocation location_;
   provisioning::Location pendingLocation_;
+  provisioning::StationNameOverride stationName_;
+  provisioning::StationName pendingName_;
+  String formValues_;
   CaptiveDnsSocket dnsSocket_;
   provisioning::CaptiveDnsService<CaptiveDnsSocket> dns_;
   bool storageReady_ = false;

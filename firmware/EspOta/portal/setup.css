@@ -11,7 +11,6 @@ section { padding: 22px; margin-top: 16px; background: white; border: 1px solid 
 aside { padding: 16px; background: #dceee9; border-radius: 12px; }
 label { display: block; font-weight: 650; margin-top: 18px; }
 input { width: 100%; font: inherit; padding: 12px; border: 1px solid #718695; border-radius: 8px; margin-top: 6px; min-height: 48px; }
-input[type=file] { font-size: .9rem; padding: 10px; }
 button { font: inherit; font-weight: 650; min-height: 48px; padding: 12px 18px; border: 0; border-radius: 8px; background: #126451; color: white; cursor: pointer; }
 #submit { width: 100%; margin-top: 10px; }
 #reveal { background: #e9f0f4; color: #172b3a; }

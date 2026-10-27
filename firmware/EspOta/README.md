@@ -3,7 +3,38 @@
 This sketch retries known WiFi networks without rebooting. If none connects, it
 opens a **password-protected, temporary local setup AP**. Optional compiled
 networks, sensor pin, and MQTT OTA protocol remain unchanged. Setup also accepts
-an optional persistent latitude/longitude pair.
+an optional persistent station display name and latitude/longitude pair.
+
+## Configure each board
+
+Edit the station configuration near the top of `EspOta.ino` before building:
+
+```cpp
+constexpr float DEFAULT_LATITUDE = 12.5f;    // Synthetic example, replace for this board.
+constexpr float DEFAULT_LONGITUDE = -45.25f;
+constexpr char STATION_MAC_OVERRIDE[] = ""; // Empty: use this board's real WiFi MAC.
+constexpr char STATION_NAME[] = "Synthetic station"; // Default name; keep valid printable UTF-8, 1-64 bytes.
+```
+
+Defaults must be finite latitude −90 to 90 and longitude −180 to 180; invalid
+sketch constants fail compilation. A valid saved portal pair takes priority.
+To return to these defaults, submit both portal coordinate fields blank and
+successfully connect/save the network. Fields are deliberately not prefilled.
+
+If an application identity override is required, replace the empty string with
+the intended station identifier (`<HH:HH:HH:HH:HH:HH>` denotes six hexadecimal
+octets, not a literal value). No shared identifier is enabled by default.
+Invalid overrides warn on serial and fall back to the real hardware MAC, even
+if a previous override was configured. Overrides affect weather and diagnostic
+HTTP JSON only: WiFi radio MAC, setup AP suffix, MQTT identity and OTA targeting
+remain hardware-based. Configure the override before `begin()`.
+
+**Identity risk:** weather ingestion preserves MAC letter case and uses the exact
+string as its unique station key. Changing the identifier or its case can select
+or create a different station; reusing one across boards merges their readings.
+Diagnostics separately uppercase MACs: use uppercase for a new identity shared
+by both HTTP paths. An existing lowercase/mixed-case weather identity does not
+automatically merge with diagnostics. No database identity migration is performed.
 
 ## Phone setup
 
@@ -16,8 +47,8 @@ an optional persistent latitude/longitude pair.
    that password. Choose to stay connected even though there is no Internet.
 3. Your phone may open a sign-in/setup window automatically. If not, open
    **`http://192.168.4.1`** explicitly (not HTTPS). Enter the exact SSID and
-   WPA password of a **2.4 GHz** router or phone hotspot, or select a photo of
-   its **WiFi QR** to fill both fields. Optionally enter **both latitude and longitude**
+   WPA password of a **2.4 GHz** router or phone hotspot manually.
+   Optionally enter a **station name** and **both latitude and longitude**
    in decimal degrees, with a decimal point. Review/edit the values and submit once.
    No app, Internet service, or GPS permission is needed.
 4. Wait about 15 seconds. Successful association closes setup; wrong credentials
@@ -54,16 +85,39 @@ are dropped. Responses add at most 16 bytes. Both services close when setup clos
 including cooldown. HTTP captive exceptions never expose assets/tokens to foreign
 hosts and never redirect POSTs or relax POST Host/Origin/CSRF validation.
 
+### Station name persistence
+
+- A valid saved portal name overrides `STATION_NAME` in weather HTTP JSON. Blank
+  clears that override and immediately restores the firmware default after a
+  successful setup; the same fallback applies after reboot or missing/invalid NVS.
+- Leading/trailing ASCII whitespace is trimmed. Names allow accents, quotes and
+  backslashes: valid UTF-8, at most **64 bytes**, no C0/C1 controls. Overlong input
+  is rejected, never byte-truncated. The backend currently has no name length cap;
+  this firmware bound limits NVS and request memory. JSON strings are escaped.
+- The form prefills only the saved override, HTML-escaped, never the firmware
+  fallback. WiFi credentials and the existing AP-local token check are still required.
+  Invalid names or incomplete coordinates reject the entire request before any writes.
+- Only fresh WiFi association and confirmed network storage permit metadata writes.
+  `station-meta` / `stationName` stores one fixed-size UTF-8 value, verified by readback;
+  clearing removes only that key. Location commits first; a failed name write attempts
+  to restore the prior location and name. NVS/power failures are **not** a transaction
+  across keys/namespaces: serial reports incomplete saves and durable rollback can
+  remain uncertain. No WiFi, setup-password or unrelated metadata key is cleared.
+- Name changes do not change HTTP MAC identity, station ID/history, hardware MAC,
+  AP SSID/password, MQTT management name/topics or OTA targeting. Diagnostics retain
+  the firmware name because their existing validator only accepts ASCII; diagnostic
+  updates do not rename existing stations. The next weather receipt supplies the
+  portal display name without changing that diagnostics contract.
+
 ### Location persistence
 
 - Latitude is finite **−90 to 90**, longitude **−180 to 180**. Enter both or leave
   both blank; partial pairs, commas, exponent/hex syntax and nonfinite values are
   rejected. **`0, 0` is valid** (enter `0` in each field), not an unset sentinel.
-- Blank fields retain the previous verified location, or the sketch's existing
-  `setLocation` fallback if none is stored. Placeholders are never saved. QR reading
-  changes only WiFi inputs, never the location, and never submits automatically.
+- Blank fields clear the saved paired location key and use the sketch's
+  `DEFAULT_LATITUDE` / `DEFAULT_LONGITUDE`, including after reboot. Zero is not blank.
 - Only explicit submission followed by fresh WiFi association **and confirmed WiFi
-  storage** can save a supplied location. A failed connection never saves it. A
+  storage** can save or clear a location override. A failed connection never changes it. A
   network-storage failure skips the location write. Location-storage failure can
   leave the WiFi entry saved: the serial result does not claim complete success.
 - The owned coordinate pair is a small versioned, checksummed Preferences blob in
@@ -72,14 +126,22 @@ hosts and never redirect POSTs or relax POST Host/Origin/CSRF validation.
   the active prior location and attempts to restore a known previous blob. If
   verification/rollback itself fails, the durable outcome is uncertain; a later
   reboot may load the last valid stored blob. There is no cross-namespace transaction.
+- Clearing removes only the single `station-meta` / `location` key and confirms
+  its absence before clearing the active override. A failed removal keeps the
+  active override. Existing WiFi entries and other metadata are never erased.
 - Boot loads saved coordinates after the sketch default; successful setup updates
   the same existing weather JSON `lat`/`lon` fields. No observation time is invented.
   Normal reboot/power loss retains both WiFi and location.
 
-**Dashboard limitation:** `my-app/app/api/esp32/route.js` currently forwards only
-`mac`, `name`, `temperature`, and `humidity` to ingestion. It ignores incoming
-coordinates. A separate backend change is required for this location to update
-the dashboard/map; no backend files are changed here.
+**Next.js receipt:** `/api/esp32` delegates to `measurement-http.mjs`, which validates
+`mac`, `name`, `temperature`, `humidity`, and paired numeric `lat`/`lon` before
+`ingest-reading.mjs` upserts by unique `Station.mac`. Coordinates update both new
+and existing stations in the reading transaction and are exposed as
+`latitude`/`longitude` by `station-data.mjs`. The weather JSON's `version` is ignored
+by measurement validation; diagnostics own firmware-version metadata. A nonblank
+`name` updates both new and existing stations without changing the MAC key or reading history. Both configured
+weather destinations receive the effective coordinates and HTTP station identifier;
+this describes local source behavior, not deployed-service compatibility.
 
 ### Every-flash WiFi reset (including the identical binary)
 
@@ -113,7 +175,7 @@ Official references: [Arduino-ESP32 Tools menu](https://docs.espressif.com/proje
 [IDF 4.4.7 ESP-NETIF declarations](https://github.com/espressif/esp-idf/blob/v4.4.7/components/esp_netif/include/esp_netif.h),
 [ESP lwIP device binding](https://github.com/espressif/esp-lwip/blob/2.1.3-esp/src/api/sockets.c).
 
-### Photo QR, not a live scanner
+### Manual setup page
 
 The local page uses neutral Spanish, a mobile-first layout and accessible labels,
 focus indicators, masked password/reveal control, status messages and busy feedback.
@@ -121,23 +183,10 @@ Manual entry and the protected POST form also work with JavaScript disabled.
 The SSID suffix is the last two bytes of the public station MAC, lowercase hex;
 it is stable, not globally unique, and unrelated to the unchanged setup password.
 
-- Take a photo or choose an image using the phone's file picker (choices depend
-  on the browser). Local HTTP cannot reliably use secure-context live-camera
-  APIs; no `getUserMedia` permissions or native `BarcodeDetector` are required.
-- Offline jsQR decodes on the phone, including browsers without BarcodeDetector.
-  Images never upload to ESP32/cloud. QR parsing only fills editable fields;
-  nothing is submitted until the user confirms the existing form POST.
-- Use one standard `WIFI:` QR with `T:WPA` or personal `T:WPA2`, SSID and passphrase.
-  Backslash-escaped backslashes, semicolons, colons and commas are supported.
-  Duplicate/unknown fields, invalid escapes, Enterprise, WEP, open networks,
-  raw 64-digit PSKs and arbitrary URLs are rejected without echoing their data.
-  Explicit `T:WPA3` is rejected because the selected Arduino core/security mode
-  has not been established; `T:WPA` is not a promise of WPA3 compatibility.
-- JPEG/PNG only, up to 8 MiB and 24 megapixels with each original side <=8192;
-  inspect dimensions before browser decoding and resize both sides to <=1024.
-  Decode at most twice, masking the first QR to reject a second detected QR.
-  Detection is not exhaustive: crop tightly to a single WiFi QR. Unreadable,
-  unsupported or oversized photos leave manual inputs untouched.
+QR photo selection and decoding are not available. Enter the SSID and password
+manually; nothing is submitted until you confirm the existing form POST.
+Browser-native autocomplete settings, saved networks, setup authentication and
+location validation remain available.
 
 ### Offline asset maintenance and size
 
@@ -153,23 +202,23 @@ Assets use AP-interface, exact local Host and Origin checks; only captive GETs
 receive the limited redirect exception described above. CSP permits only
 same-origin scripts/styles, not inline scripts, external services or connections.
 
-`portal/vendor/jsQR.min.js` is jsQR **1.4.0**, Apache-2.0; its full license and
-exact npm source/integrity/minified checksum are in `portal/vendor/`.
-`portal/vendor-source.py` reproduces vendoring from official npm HTTPS bytes,
-verifies npm SHA-512/SHA-1, and uses the already installed Terser 5.46.1; it does
-not install or execute package scripts. The minified decoder is **130,267 bytes**
-before other assets. Source assets duplicated in the generated header are not
-separate firmware copies: only included PROGMEM arrays enter the binary.
+Source assets duplicated in the generated header are not separate firmware
+copies: only included PROGMEM arrays enter the binary.
 Flash/OTA slot fit is **unverified** until the actual FQBN, core and partition
 layout are supplied and a binary is built. Do not flash this candidate based on
 the source size alone.
 
 Run `bash firmware/EspOta/tests/run-host-tests.sh` and
-`node --test firmware/EspOta/tests/portal.test.cjs`. QR fixtures contain only
-public synthetic test values; regenerate them with `tests/generate-qr-fixtures.cjs`
-using the existing OS `qrcode-terminal` generator (no install). Node tests execute
-the production parser, actual vendored decoder and a mocked-DOM interaction harness;
+`node --test firmware/EspOta/tests/portal.test.cjs`. Node tests check generated
+assets and execute the manual form script without decoder globals in a mocked DOM;
 they are not real browser/phone or hardware validation. Those checks remain pending.
+
+For the station identity/location boundary, also run:
+`node --test firmware/EspOta/tests/station-contract.test.mjs my-app/tests/measurement.test.mjs`.
+The native fixture exercises the production identity/location policies and sends
+synthetic JSON through the actual Next.js handler with an in-memory persistence
+double. It does not compile the Arduino serializer/Preferences adapters or contact
+HTTP services or a database.
 
 ## Timing and persistence
 
@@ -322,8 +371,20 @@ Weather-header-only rollback: remove the setup/policy includes and conditional
 Authorization header from `Esp32OTA.cpp`, plus the header documentation above;
 preserve the setup configuration, delivery scheduler and diagnostic transport.
 
-Portal-UX/QR-only rollback: restore `WiFiProvisioning.cpp/.h`, `PortalRequest.h`,
+Portal-UX-only rollback: restore `WiFiProvisioning.cpp/.h`, `PortalRequest.h`,
 the portal runner entry and these portal docs to their pre-change versions;
 remove `PortalAssets.h`, `PortalIdentity.h`, `PortalStream.h`, `portal/`, and the
-new portal/fixture tests. This also restores the former AP name. Preserve all
+new portal tests. This also restores the former AP name. Preserve all
 pre-existing sketch, weather-header, setup-password, persistence and application edits.
+
+Station-configuration rollback: remove `StationIdentity.h` and its host test,
+undo only the default/HTTP-identity wiring, paired-location clearing behavior,
+and related tests/help text from this change. Preserve the pending QR removal,
+weather authorization and all application edits. This rollback does not erase NVS.
+
+Portal-name-only rollback: remove `StationName.h`, `tests/station_name_test.cpp`
+and `tests/stubs/pgmspace.h`; undo only name parsing/persistence, streamed name
+prefill, weather-name escaping, the `STATION_NAME` constant wiring, and their
+tests/help text in the existing files. Regenerate `PortalAssets.h`. Retain the
+pending QR removal, coordinates/MAC configuration, Next.js rename and POST auth.
+The unused `station-meta` / `stationName` key may remain; do not erase NVS.

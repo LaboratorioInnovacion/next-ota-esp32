@@ -53,7 +53,8 @@ int Esp32OTA::sendDiagnostics(const char* endpoint, const char* sensorStatus,
   }
   char uptime[24];
   snprintf(uptime, sizeof(uptime), "%llu", (unsigned long long)uptimeMs);
-  String payload = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + diagnosticJsonString(_deviceName) +
+  // Diagnostics retain the firmware name: their existing schema is ASCII-only.
+  String payload = "{\"mac\":\"" + String(stationIdentity.resolve(deviceMac.c_str())) + "\",\"name\":\"" + diagnosticJsonString(_deviceName) +
       "\",\"version\":\"" + diagnosticJsonString(_firmwareVersion) + "\",\"bootId\":\"" + diagnosticsBootId +
       "\",\"uptimeMs\":" + uptime + ",\"sensorStatus\":\"" + sensorStatus + "\",\"errorCode\":\"" + errorCode + "\"}";
   // Dedicated verified transport; never share the legacy convenience client.
@@ -77,6 +78,12 @@ void Esp32OTA::setLocation(float lat, float lon) {
   _longitude = lon;
 }
 
+bool Esp32OTA::setStationMacOverride(const char* mac) {
+  const bool valid = stationIdentity.configure(mac);
+  if (!valid) Serial.println("Invalid station MAC override; HTTP identity uses hardware MAC.");
+  return valid;
+}
+
 Esp32OTA::Esp32OTA(const char* mqttHost, int mqttPort,
                    const char* mqttUser, const char* mqttPass,
                    const char* deviceName, const char* firmwareVersion)
@@ -96,8 +103,6 @@ void Esp32OTA::setWiFiNetworks(const char* ssids[], const char* passwords[], int
 void Esp32OTA::begin() {
   Serial.begin(115200);
   provisioning.begin();
-  if (provisioning.location().present)
-    setLocation(provisioning.location().latitude, provisioning.location().longitude);
   deviceMac = WiFi.macAddress();
   Serial.println("MAC: " + deviceMac);
 
@@ -199,6 +204,12 @@ bool Esp32OTA::sendWeatherData(float temperature, float humidity, const char* en
     Serial.println("No hay WiFi para enviar POST");
     return false;
   }
+  const provisioning::Location location = provisioning::effectiveLocation(
+      _latitude, _longitude, provisioning.location());
+  if (!location.present || !provisioning::validCoordinates(location.latitude, location.longitude)) {
+    Serial.println("Weather POST skipped: invalid station coordinates.");
+    return false;
+  }
 
   HTTPClient http;
   http.setConnectTimeout(5000);
@@ -214,12 +225,12 @@ bool Esp32OTA::sendWeatherData(float temperature, float humidity, const char* en
   //                  "\",\"version\":\"" + _firmwareVersion +
   //                  "\",\"temperature\":" + String(temperature, 1) +
   //                  ",\"humidity\":" + String(humidity, 1) + "}";
-String payload = "{\"mac\":\"" + deviceMac + "\",\"name\":\"" + _deviceName +
-                 "\",\"version\":\"" + _firmwareVersion +
+String payload = "{\"mac\":\"" + String(stationIdentity.resolve(deviceMac.c_str())) + "\",\"name\":\"" + provisioning::jsonString<String>(provisioning.stationName(_deviceName)) +
+                 "\",\"version\":\"" + provisioning::jsonString<String>(_firmwareVersion) +
                  "\",\"temperature\":" + String(temperature, 1) +
                  ",\"humidity\":" + String(humidity, 1) +
-                 ",\"lat\":" + String(_latitude, 6) +
-                 ",\"lon\":" + String(_longitude, 6) + "}";
+                 ",\"lat\":" + String(location.latitude, 6) +
+                 ",\"lon\":" + String(location.longitude, 6) + "}";
 
   int httpCode = http.POST(payload);
   const bool success = httpCode >= 200 && httpCode < 300;
@@ -241,8 +252,6 @@ void Esp32OTA::sendHeartbeat() {
 
 void Esp32OTA::loop() {
   provisioning.loop();
-  if (provisioning.location().present)
-    setLocation(provisioning.location().latitude, provisioning.location().longitude);
   // Synchronous upstream work is suspended while setup is active.
   if (!networkReady()) {
     wifiClient.stop();

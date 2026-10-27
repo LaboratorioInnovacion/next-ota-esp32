@@ -40,6 +40,7 @@ void WiFiProvisioning::begin() {
   if (storageReady_) saved_.load(*this);
   metadataReady_ = metadata_.begin("station-meta", false);
   location_.load(*this);
+  if (metadataReady_) stationName_.load(metadata_);
   policy_.begin(millis(), saved_.count + compiledCount_, *this);
 }
 
@@ -50,6 +51,12 @@ size_t WiFiProvisioning::readLocation(provisioning::LocationBlob& value) {
 
 size_t WiFiProvisioning::writeLocation(const provisioning::LocationBlob& value) {
   return metadataReady_ ? metadata_.putBytes("location", &value, sizeof(value)) : 0;
+}
+
+bool WiFiProvisioning::clearLocation() {
+  if (!metadataReady_) return false;
+  if (!metadata_.isKey("location")) return true;
+  return metadata_.remove("location") && !metadata_.isKey("location");
 }
 
 size_t WiFiProvisioning::read(size_t slot, provisioning::Credential& value) {
@@ -82,7 +89,12 @@ bool WiFiProvisioning::saveCandidate() {
   policy_.setCount(saved_.count + compiledCount_);
   // Location is explicit and only committed after fresh WiFi association and
   // confirmed network storage. Failure leaves the active location unchanged.
-  return saved && location_.commit(*this, pendingLocation_);
+  if (!saved) return false;
+  const provisioning::Location previous = location_.value();
+  if (!location_.commit(*this, pendingLocation_)) return false;
+  if (stationName_.commit(metadata_, pendingName_)) return true;
+  location_.commit(*this, previous); // Best-effort rollback on a name storage failure.
+  return false;
 }
 
 bool WiFiProvisioning::setupPassword() {
@@ -149,14 +161,16 @@ void WiFiProvisioning::stopPortal() {
   WiFi.softAPdisconnect(false);
   WiFi.mode(WIFI_STA);
   token_ = "";
+  formValues_ = "";
 }
 
 void WiFiProvisioning::result(bool connected, bool saved) {
   Serial.println(!connected ? "New network failed; existing networks preserved." :
                  saved ? "New network connected and saved; setup closed." :
-                          "Network connected; WiFi/location save NOT fully confirmed. Review configuration.");
+                          "Network connected; WiFi/location/name save NOT fully confirmed. Review configuration.");
   candidate_ = provisioning::Credential{};
   pendingLocation_ = provisioning::Location{};
+  pendingName_ = provisioning::StationName{};
 }
 
 void WiFiProvisioning::respond(int code, const String& body) {
@@ -173,7 +187,9 @@ void WiFiProvisioning::respond(int code, const String& body) {
 
 void WiFiProvisioning::asset(const char* body, size_t length, const char* type,
                              const char* tail, size_t tailLength) {
-  const size_t tokenLength = tail ? token_.length() : 0;
+  if (tail) formValues_ = token_ + portal_assets::FormMiddle +
+      provisioning::htmlAttribute<String>(stationName_.saved());
+  const size_t tokenLength = tail ? formValues_.length() : 0;
   const int headerLength = snprintf(responseHeader_, sizeof(responseHeader_),
       "HTTP/1.1 200 OK\r\nContent-Type: %s\r\nCache-Control: no-store\r\n"
       "Connection: close\r\nX-Content-Type-Options: nosniff\r\n"
@@ -185,7 +201,7 @@ void WiFiProvisioning::asset(const char* body, size_t length, const char* type,
     return;
   }
   response_.begin(responseHeader_, size_t(headerLength), body, length,
-                  tail ? token_.c_str() : nullptr, tokenLength, tail, tailLength);
+                  tail ? formValues_.c_str() : nullptr, tokenLength, tail, tailLength);
   responseSince_ = millis();
   memset(request_, 0, sizeof(request_));
   requestSize_ = 0;
@@ -232,7 +248,8 @@ void WiFiProvisioning::serve() {
   request_[requestSize_] = 0;
   provisioning::Credential submitted{};
   provisioning::Location submittedLocation;
-  const provisioning::Request parsed = provisioning::parse(request_, requestSize_, token_.c_str(), submitted, &submittedLocation);
+  provisioning::StationName submittedName;
+  const provisioning::Request parsed = provisioning::parse(request_, requestSize_, token_.c_str(), submitted, &submittedLocation, &submittedName);
   if (parsed == provisioning::Request::Incomplete) {
     if (requestSize_ == provisioning::RequestLimit) respond(413, "Request too large.");
     return;
@@ -251,21 +268,19 @@ void WiFiProvisioning::serve() {
     asset(portal_assets::Style, sizeof(portal_assets::Style) - 1, "text/css; charset=utf-8");
   } else if (parsed == provisioning::Request::Script) {
     asset(portal_assets::Script, sizeof(portal_assets::Script) - 1, "application/javascript; charset=utf-8");
-  } else if (parsed == provisioning::Request::Parser) {
-    asset(portal_assets::Parser, sizeof(portal_assets::Parser) - 1, "application/javascript; charset=utf-8");
-  } else if (parsed == provisioning::Request::Decoder) {
-    asset(portal_assets::Decoder, sizeof(portal_assets::Decoder) - 1, "application/javascript; charset=utf-8");
   } else if (parsed == provisioning::Request::Submit) {
-    if (policy_.pending() || !storageReady_ || (submittedLocation.present && !metadataReady_) ||
+    if (policy_.pending() || !storageReady_ || !metadataReady_ ||
         (!saved_.room() && !saved_.contains(submitted))) {
       respond(409, "Configuración ocupada o espacios guardados completos. Las redes existentes se conservan.");
       return;
     }
     candidate_ = submitted;
     pendingLocation_ = submittedLocation;
+    pendingName_ = submittedName;
     if (!policy_.submit(millis(), *this)) {
       candidate_ = provisioning::Credential{};
       pendingLocation_ = provisioning::Location{};
+      pendingName_ = provisioning::StationName{};
       respond(409, "La ventana de configuración está terminando. No se cambiaron credenciales. Reintente en la próxima ventana.");
       return;
     }

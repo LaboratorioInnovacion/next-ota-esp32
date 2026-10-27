@@ -11,9 +11,9 @@ Request parseRequest(const std::string& text) {
   return parse(text.c_str(), text.size(), "synthetic-test-token", out);
 }
 void assetRoutes() {
-  const char* paths[] = {"/setup.css", "/setup.js", "/wifi-qr.js", "/qr-decoder.js"};
-  const Request expected[] = {Request::Style, Request::Script, Request::Parser, Request::Decoder};
-  for (size_t i = 0; i < 4; ++i) {
+  const char* paths[] = {"/setup.css", "/setup.js"};
+  const Request expected[] = {Request::Style, Request::Script};
+  for (size_t i = 0; i < 2; ++i) {
     const std::string first = std::string("GET ") + paths[i] + " HTTP/1.1\r\n";
     const std::string request = first + "Host: 192.168.4.1\r\n\r\n";
     assert(parseRequest(request) == expected[i]);
@@ -27,7 +27,8 @@ void assetRoutes() {
     assert(parseRequest(request + "x") == Request::Reject);
     assert(parseRequest(std::string("POST ") + paths[i] + " HTTP/1.1\r\nHost: 192.168.4.1\r\n\r\n") == Request::Reject);
   }
-  assert(parseRequest("GET /qr-decoder.js?x HTTP/1.1\r\nHost: 192.168.4.1\r\n\r\n") == Request::Reject);
+  for (const char* path : {"/wifi-qr.js", "/qr-decoder.js", "/qr-decoder.js?x"})
+    assert(parseRequest(std::string("GET ") + path + " HTTP/1.1\r\nHost: 192.168.4.1\r\n\r\n") == Request::Reject);
 }
 void stablePublicName() {
   uint8_t mac[6] = {0x02, 0x11, 0x22, 0x33, 0x0a, 0xbc};

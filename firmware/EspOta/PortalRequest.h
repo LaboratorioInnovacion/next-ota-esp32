@@ -2,12 +2,13 @@
 
 #include "WiFiPolicy.h"
 #include "StationLocation.h"
+#include "StationName.h"
 #include <stdlib.h>
 #include <strings.h>
 
 namespace provisioning {
 constexpr size_t RequestLimit = 1536;
-enum class Request { Incomplete, Form, Style, Script, Parser, Decoder, Captive, Submit, Reject };
+enum class Request { Incomplete, Form, Style, Script, Captive, Submit, Reject };
 constexpr char CaptiveRedirect[] = "HTTP/1.1 302 Found\r\nLocation: http://192.168.4.1/\r\n"
     "Cache-Control: no-store\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
 
@@ -38,7 +39,7 @@ inline bool decode(const char* first, size_t length, char* out, size_t capacity)
 // oversized headers/bodies, foreign Host/Origin, and unexpected form fields.
 // No credential is ever included in a response.
 inline Request parse(const char* data, size_t length, const char* token, Credential& credential,
-                     Location* location = nullptr) {
+                     Location* location = nullptr, StationName* stationName = nullptr) {
   if (length > RequestLimit || memchr(data, 0, length)) return Request::Reject;
   const char* end = strstr(data, "\r\n\r\n");
   if (!end) return length >= 1024 ? Request::Reject : Request::Incomplete;
@@ -66,8 +67,6 @@ inline Request parse(const char* data, size_t length, const char* token, Credent
   if (matches("GET / HTTP/1.1")) route = Request::Form;
   else if (matches("GET /setup.css HTTP/1.1")) route = Request::Style;
   else if (matches("GET /setup.js HTTP/1.1")) route = Request::Script;
-  else if (matches("GET /wifi-qr.js HTTP/1.1")) route = Request::Parser;
-  else if (matches("GET /qr-decoder.js HTTP/1.1")) route = Request::Decoder;
   else if (probe("/generate_204") || probe("/gen_204") || probe("/hotspot-detect.html") ||
            probe("/connecttest.txt") || probe("/ncsi.txt")) route = Request::Captive;
   const bool get = route != Request::Reject;
@@ -113,7 +112,7 @@ inline Request parse(const char* data, size_t length, const char* token, Credent
         if (*p < '0' || *p > '9') return Request::Reject;
         bodySize = bodySize * 10 + size_t(*p - '0');
       }
-      if (bodySize > 512) return Request::Reject;
+      if (bodySize > 768) return Request::Reject; // Includes percent-encoded UTF-8 name and WiFi fields.
       sizeSeen = true;
     } else if (keySize == 17 && strncasecmp(line, "Transfer-Encoding", 17) == 0) {
       return Request::Reject;
@@ -126,6 +125,8 @@ inline Request parse(const char* data, size_t length, const char* token, Credent
   if (get) return route;
   char ssid[33] = {}, password[64] = {}, receivedToken[33] = {};
   char latitude[25] = {}, longitude[25] = {};
+  char name[StationNameLimit + 1] = {};
+  bool nameSeen = false;
   bool latitudeSeen = false, longitudeSeen = false;
   bool ssidSeen = false, passwordSeen = false, tokenSeen = false;
   const char* field = data + headerSize;
@@ -147,14 +148,20 @@ inline Request parse(const char* data, size_t length, const char* token, Credent
       target = latitude; capacity = sizeof(latitude); latitudeSeen = true;
     } else if (equal - field == 9 && memcmp(field, "longitude", 9) == 0 && !longitudeSeen) {
       target = longitude; capacity = sizeof(longitude); longitudeSeen = true;
+    } else if (equal - field == 4 && memcmp(field, "name", 4) == 0 && !nameSeen) {
+      target = name; capacity = sizeof(name); nameSeen = true;
     } else return Request::Reject;
     if (!decode(equal + 1, size_t(amp - equal - 1), target, capacity)) return Request::Reject;
     field = amp + 1;
   }
   if (!ssidSeen || !passwordSeen || !tokenSeen || strcmp(token, receivedToken)) return Request::Reject;
   Location parsedLocation;
+  StationName parsedName;
+  if (!parseStationName(name, parsedName)) return Request::Reject;
   if (!parseLocation(latitude, longitude, parsedLocation)) return Request::Reject;
+  if (!assign(credential, ssid, strlen(ssid), password, strlen(password))) return Request::Reject;
   if (location) *location = parsedLocation;
-  return assign(credential, ssid, strlen(ssid), password, strlen(password)) ? Request::Submit : Request::Reject;
+  if (stationName) *stationName = parsedName;
+  return Request::Submit;
 }
 } // namespace provisioning

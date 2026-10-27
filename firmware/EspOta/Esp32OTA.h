@@ -7,6 +7,7 @@
 #include <HTTPClient.h>
 #include <Update.h>
 #include "WiFiProvisioning.h"
+#include "StationIdentity.h"
 
 // Definiciones para tópicos MQTT
 #define TOPIC_STATUS    "esp32/status"
@@ -22,6 +23,8 @@ public:
            const char* deviceName, const char* firmwareVersion);
   // Permite configurar la ubicación geográfica
   void setLocation(float lat, float lon);
+  // HTTP application identity only; call before begin(). Empty uses hardware MAC.
+  bool setStationMacOverride(const char* mac);
   // Inicializa la conexión WiFi y MQTT, y obtiene la MAC.
   void begin();
 
@@ -61,6 +64,7 @@ private:
   const char* _firmwareVersion;
 
   String deviceMac;
+  station::Identity stationIdentity;
   WiFiClientSecure wifiClient;
   PubSubClient mqttClient;
 

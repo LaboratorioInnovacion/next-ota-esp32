@@ -10,6 +10,17 @@ struct Location {
   bool present = false;
   float latitude = 0, longitude = 0;
 };
+constexpr bool validCoordinates(float latitude, float longitude) {
+  // Comparisons also reject NaN and infinity; valid zero is never a sentinel.
+  return latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
+}
+inline Location effectiveLocation(float latitude, float longitude, const Location& portal) {
+  if (portal.present) return portal;
+  Location fallback;
+  fallback.present = validCoordinates(latitude, longitude);
+  fallback.latitude = latitude; fallback.longitude = longitude;
+  return fallback;
+}
 inline bool coordinate(const char* text, float limit, float& value) {
   // Decimal degrees only, not hex, exponent, whitespace, NaN or infinity.
   const char* p = text;
@@ -54,6 +65,8 @@ public:
   virtual ~LocationStorage() {}
   virtual size_t readLocation(LocationBlob& blob) = 0;
   virtual size_t writeLocation(const LocationBlob& blob) = 0;
+  // Remove only the single paired location key and confirm its absence.
+  virtual bool clearLocation() = 0;
 };
 class StationLocation {
 public:
@@ -62,7 +75,11 @@ public:
     if (storage.readLocation(blob) == sizeof(blob) && validLocation(blob)) apply(blob);
   }
   bool commit(LocationStorage& storage, const Location& next) {
-    if (!next.present) return true;
+    if (!next.present) {
+      if (!storage.clearLocation()) return false;
+      value_ = Location{};
+      return true;
+    }
     LocationBlob blob{1, next.latitude, next.longitude, 0};
     blob.checksum = locationChecksum(blob);
     if (!validLocation(blob)) return false;

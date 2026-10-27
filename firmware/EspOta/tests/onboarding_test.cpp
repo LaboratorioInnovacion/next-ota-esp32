@@ -45,6 +45,12 @@ struct Metadata : LocationStorage {
     if (failWrite) return 0;
     stored = next; exists = true; return sizeof(next);
   }
+  bool clearLocation() override {
+    ++writes;
+    if (failWrite) return false;
+    exists = false;
+    return true;
+  }
 };
 std::string post(const std::string& extra) {
   const std::string body = "ssid=Fixture&password=test-only-pass&token=test-token" + extra;
@@ -77,10 +83,17 @@ void locationPersistence() {
   StationLocation reboot; reboot.load(memory);
   assert(reboot.value().present && reboot.value().latitude == -34.5f && reboot.value().longitude == -58.25f);
   const int writes = memory.writes;
-  assert(state.commit(memory, Location{}) && memory.writes == writes);
+  assert(state.commit(memory, Location{}) && memory.writes == writes + 1);
+  assert(!memory.exists && !state.value().present);
+  StationLocation clearedBoot; clearedBoot.load(memory);
+  assert(!clearedBoot.value().present);
+  const Location fallback = effectiveLocation(12.5f, -45.25f, clearedBoot.value());
+  assert(fallback.present && fallback.latitude == 12.5f && fallback.longitude == -45.25f);
   Location zero; assert(parseLocation("0", "0", zero));
   assert(state.commit(memory, zero) && state.value().present && state.value().latitude == 0 && state.value().longitude == 0);
   StationLocation zeroBoot; zeroBoot.load(memory); assert(zeroBoot.value().present && zeroBoot.value().latitude == 0);
+  const Location effective = effectiveLocation(12.5f, -45.25f, zeroBoot.value());
+  assert(effective.present && effective.latitude == 0 && effective.longitude == 0);
   memory.stored.version = 2;
   StationLocation corrupt; corrupt.load(memory); assert(!corrupt.value().present);
   for (int fault = 0; fault < 3; ++fault) {
@@ -93,6 +106,15 @@ void locationPersistence() {
   }
 }
 void locationFailures() {
+  {
+    Metadata memory; StationLocation state;
+    Location old; assert(parseLocation("1", "2", old)); assert(state.commit(memory, old));
+    memory.failWrite = true;
+    assert(!state.commit(memory, Location{}));
+    assert(state.value().present && state.value().latitude == 1 && memory.exists);
+    StationLocation reboot; reboot.load(memory);
+    assert(reboot.value().present && reboot.value().longitude == 2);
+  }
   for (int failure = 0; failure < 3; ++failure) {
     Metadata memory; StationLocation state;
     Location old; assert(parseLocation("-34", "-58", old)); assert(state.commit(memory, old));
@@ -233,11 +255,13 @@ struct LocationDriver : Driver {
   void result(bool, bool saved) override { savedResult = saved; pending = Location{}; }
 };
 void associationGate() {
-  for (int outcome = 0; outcome < 4; ++outcome) {
+  for (int scenario = 0; scenario < 8; ++scenario) {
+    const bool clear = scenario >= 4;
+    const int outcome = scenario % 4;
     LocationDriver driver; Policy policy;
     Location previous; assert(parseLocation("1", "2", previous)); assert(driver.location.commit(driver.metadata, previous));
     const int before = driver.metadata.writes;
-    assert(parseLocation("0", "0", driver.pending));
+    assert(parseLocation(clear ? "" : "0", clear ? "" : "0", driver.pending));
     policy.begin(0, 0, driver); assert(policy.submit(1, driver));
     policy.tick(101, false, false, driver);
     assert(driver.metadata.writes == before && driver.location.value().latitude == 1);
@@ -250,7 +274,8 @@ void associationGate() {
       policy.tick(601, true, true, driver);
       assert(driver.saves == 1 && driver.closes == 1);
       assert(driver.savedResult == (outcome == 1));
-      assert(driver.location.value().latitude == (outcome == 1 ? 0 : 1));
+      if (outcome == 1 && clear) assert(!driver.location.value().present && !driver.metadata.exists);
+      else assert(driver.location.value().latitude == (outcome == 1 ? 0 : 1));
       if (outcome == 2) assert(driver.metadata.writes == before);
     }
   }

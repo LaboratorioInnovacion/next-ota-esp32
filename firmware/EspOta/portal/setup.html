@@ -2,21 +2,19 @@
 <html lang="es"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Conectar estación · WiFi</title><link rel="stylesheet" href="/setup.css">
-<script defer src="/qr-decoder.js"></script><script defer src="/wifi-qr.js"></script>
 <script defer src="/setup.js"></script></head><body><main>
 <header><span class="badge">CONFIGURACIÓN LOCAL</span><h1>Conecte su estación</h1>
 <p>Agregue la red de su router en tres pasos. Sus redes anteriores se conservan.</p></header>
 <aside>Está conectado a la estación, temporalmente sin Internet. Mantenga esta conexión durante la configuración.</aside>
 <section aria-labelledby="step1"><h2 id="step1">1. Prepare su red</h2>
 <p>Use una red <strong>WiFi de 2,4 GHz con WPA personal</strong>. El router debe estar encendido y al alcance.</p>
-<div id="qr-section" hidden><label for="qr-photo">Leer el QR WiFi del router</label>
-<input id="qr-photo" type="file" accept="image/*" capture="environment">
-<p class="hint">Tome una foto o elija una imagen, según su teléfono. Incluya un solo QR WiFi. La foto se procesa en su teléfono: no se sube ni se envía a la estación.</p>
-<p id="qr-status" role="status" aria-live="polite">También puede completar los datos manualmente.</p></div>
-<noscript><p>Complete los datos manualmente. La lectura de QR requiere JavaScript.</p></noscript></section>
+</section>
 <form method="post" action="/save" id="setup-form">
 <input type="hidden" name="token" value="{{TOKEN}}">
 <section aria-labelledby="step2"><h2 id="step2">2. Revise los datos</h2>
+<label for="station-name">Nombre de la estación (opcional)</label>
+<input id="station-name" name="name" value="{{NAME}}" maxlength="64" autocomplete="off" aria-describedby="name-help">
+<p class="hint" id="name-help">Máximo 64 bytes UTF-8, sin caracteres de control. Se quitan los espacios al inicio y al final. Deje vacío para borrar el nombre guardado y usar el nombre del firmware. Se aplica después de conectar y guardar la red; no cambia la MAC ni el nombre del punto de acceso.</p>
 <label for="ssid">Nombre de la red (SSID)</label>
 <input id="ssid" name="ssid" maxlength="32" required autocomplete="off" autocapitalize="none" spellcheck="false" aria-describedby="ssid-help">
 <p class="hint" id="ssid-help">Respete espacios y mayúsculas. Máximo 32 bytes.</p>
@@ -25,14 +23,13 @@
 <p class="hint" id="password-help">Entre 8 y 63 caracteres ASCII imprimibles. No es la contraseña de configuración de la estación.</p>
 <button type="button" id="reveal" aria-pressed="false" hidden>Mostrar contraseña</button>
 <h3>Ubicación de la estación (opcional)</h3>
-<p class="hint" id="location-help">Ingrese ambas coordenadas en grados decimales, con punto decimal (no coma). Latitud: −90 a 90; longitud: −180 a 180. Se admite 0, 0. Si deja ambos campos vacíos, se conserva la ubicación guardada o la ubicación predeterminada. Se guarda solo después de conectar y guardar la red.</p>
+<p class="hint" id="location-help">Enter both coordinates in decimal degrees using a decimal point (not a comma). Latitude: −90 to 90; longitude: −180 to 180. Zero is valid. Leave both fields blank to clear the saved location and use the firmware defaults. Changes apply only after connecting and saving the network.</p>
 <label for="latitude">Latitud</label>
 <input id="latitude" name="latitude" type="text" inputmode="decimal" maxlength="24" autocomplete="off" aria-describedby="location-help">
 <label for="longitude">Longitud</label>
 <input id="longitude" name="longitude" type="text" inputmode="decimal" maxlength="24" autocomplete="off" aria-describedby="location-help">
 <p class="hint">La ubicación se ingresa manualmente: esta página HTTP local no solicita acceso al GPS. El mapa del panel requiere que el servidor use estas coordenadas.</p></section>
 <section aria-labelledby="step3"><h2 id="step3">3. Confirme la conexión</h2>
-<p>El QR solo completa los campos. Revise y edite los datos antes de confirmar.</p>
 <button id="submit" type="submit">Probar y agregar red</button>
 <p id="form-status" role="status" aria-live="polite"></p></section></form>
 <footer>Espere unos 15 segundos después de confirmar. Si el punto de acceso desaparece, la conexión funcionó; esto no confirma el guardado. El puerto serie confirma la persistencia. Si sigue disponible, vuelva a abrir esta página y reintente. Hay hasta cinco espacios guardados; nunca se borran redes desde aquí. La configuración cierra a los 10 minutos y espera al menos 5 minutos antes de volver a abrir.</footer>
