@@ -3,8 +3,82 @@
 Esta guía explica cómo preparar **una estación piloto**, encenderla, conectarla al
 WiFi desde un teléfono y comprobar que sus mediciones llegan a los paneles. Use
 **el archivo `EspOta.ino` de esta carpeta**, no otro programa del repositorio.
-Si la placa ya tiene este firmware preparado, comience en el **paso 4** con la
-contraseña de configuración proporcionada por la persona responsable.
+Si la estación ya está preparada, siga la **conexión rápida** de abajo. No necesita
+volver a cargar el programa. Las secciones numeradas posteriores son la referencia
+para quien prepara o mantiene la estación.
+
+## Conexión rápida desde el teléfono
+
+Tenga a mano el nombre y la contraseña de su WiFi de **2,4 GHz**, y la contraseña
+de la estación proporcionada por quien la preparó. Son dos contraseñas distintas.
+Si la estación ya estaba configurada, puede conectarse directamente a su WiFi sin
+mostrar una red propia: compruebe primero si hay una lectura nueva en el panel.
+
+1. **Conecte la estación a la alimentación**, con su fuente habitual y cerca del
+   router encendido, donde llegue bien la señal WiFi.
+2. **Conecte el teléfono al WiFi de la estación.** En los ajustes WiFi, busque
+   `estacionm-nodo-xxxx` (las últimas cuatro letras o cifras cambian según la
+   estación). Introduzca `[contraseña de la estación]`, la que le proporcionaron.
+   Si el teléfono avisa **«Sin Internet»**, elija permanecer conectado: es normal.
+3. **Abra la página de configuración.** Puede aparecer automáticamente. Si no
+   aparece, abra el navegador y escriba **http://192.168.4.1** en la barra de
+   direcciones, sin cambiar `http` por `https`. Mantenga el teléfono conectado a la
+   estación. La página debe decir **«Conecte su estación»**.
+4. **Complete los datos de su WiFi y la ubicación:**
+   - En **«Nombre de la red (SSID)»**, escriba el nombre exacto de su WiFi,
+     respetando espacios y mayúsculas.
+   - En **«Contraseña del router»**, escriba `[contraseña de tu WiFi]`, no la de
+     la estación. El botón **«Mostrar contraseña»** permite revisar lo escrito;
+     después puede volver a ocultarlo.
+   - Para indicar dónde está instalada, complete **«Latitud»** y **«Longitud»**
+     con sus coordenadas reales y punto decimal, no coma. Son **opcionales, pero
+     deben completarse juntas**. Si deja ambas vacías, se usan las coordenadas
+     del programa y se elimina cualquier ubicación personalizada guardada.
+     No se completan automáticamente: vuelva a escribirlas para conservarla.
+   - También puede indicar un **nombre de la estación** y un **intervalo de envío**.
+     El intervalo aparece en inglés: **«Weather send interval in seconds
+     (optional)»**. Por ejemplo, `300` significa cinco minutos entre envíos
+     posteriores. Si deja nombre e intervalo vacíos, se vuelve a los valores del
+     programa después de guardar correctamente.
+5. **Pulse «Probar y agregar red» una sola vez y espere un momento.** Aparecerá
+   **«Solicitud recibida»** mientras la estación intenta conectarse. Si conecta,
+   normalmente desaparece su WiFi y se cierra la página: el teléfono puede volver
+   a su conexión habitual. Esto por sí solo **no confirma que todos los ajustes
+   hayan quedado guardados**.
+6. **Compruebe una lectura nueva en el panel**, con el teléfono conectado de nuevo
+   a Internet. Revise nombre, ubicación y fecha/hora de la lectura, no solo que la
+   estación aparezca. La primera medición se intenta enviar cuando hay una lectura
+   válida y conexión; las siguientes usan el intervalo elegido. Si el WiFi de la
+   estación sigue disponible o reaparece, revise nombre y contraseña de su red,
+   que sea de 2,4 GHz y que tenga buena señal, y vuelva a abrir la página.
+
+### Ejemplo orientativo de la página
+
+Este esquema no es una captura de pantalla. Conserva las etiquetas del portal;
+el nombre, la red y las coordenadas son ejemplos ficticios. Sustitúyalos por los
+datos de su instalación. La contraseña se muestra oculta.
+
+```text
+Conecte su estación
+
+Nombre de la estación (opcional): Estación patio
+Weather send interval in seconds (optional): 300
+Nombre de la red (SSID): MiWiFi
+Contraseña del router: ********
+[Mostrar contraseña]
+
+Ubicación de la estación (opcional)
+Latitud: 12.5
+Longitud: -45.25
+
+[Probar y agregar red]
+```
+
+Si necesita ayuda, consulte los **pasos 5 y 6** para abrir el portal y revisar
+cada campo, y el **paso 7** para verificar las mediciones. Al volver a encenderla,
+la estación intenta usar las redes guardadas: no es necesario configurarla cada
+vez. El borrado de memoria del paso 4 es solo para mantenimiento autorizado,
+**no para esta conexión rápida**.
 
 **Recorrido esperado:** encendido → lectura de configuración guardada → conexión
 a una red conocida o apertura del portal → configuración desde el teléfono →
